@@ -57,6 +57,7 @@ typedef ptrdiff_t     GLintptr;
 #define GL_BLEND                          0x0BE2
 #define GL_SCISSOR_TEST                   0x0C11
 #define GL_UNPACK_ALIGNMENT               0x0CF5
+#define GL_PACK_ALIGNMENT                 0x0D05
 #define GL_TEXTURE_2D                     0x0DE1
 #define GL_UNSIGNED_BYTE                  0x1401
 #define GL_UNSIGNED_SHORT                 0x1403
@@ -166,7 +167,8 @@ typedef ptrdiff_t     GLintptr;
     X(void,          glEnableVertexAttribArray,(GLuint index)) \
     X(void,          glVertexAttribPointer,    (GLuint index, GLint size, GLenum type, GLboolean norm, GLsizei stride, const void *ptr)) \
     X(void,          glDrawArrays,             (GLenum mode, GLint first, GLsizei count)) \
-    X(void,          glDrawElements,           (GLenum mode, GLsizei count, GLenum type, const void *indices))
+    X(void,          glDrawElements,           (GLenum mode, GLsizei count, GLenum type, const void *indices)) \
+    X(void,          glReadPixels,             (GLint x, GLint y, GLsizei w, GLsizei h, GLenum fmt, GLenum type, void *pixels))
 
 #define SMKGL_DECLARE(ret, name, args) \
     typedef ret (SMKGL_APIENTRY *PFN_smk_##name) args; \
@@ -240,6 +242,7 @@ SMKGL_FUNCS(SMKGL_DECLARE)
 #define glVertexAttribPointer     smkgl_glVertexAttribPointer
 #define glDrawArrays              smkgl_glDrawArrays
 #define glDrawElements            smkgl_glDrawElements
+#define glReadPixels              smkgl_glReadPixels
 
 /* Resolve every entry point for the current context. `es` selects the GLSL
  * dialect (ES 3.00 vs desktop 3.30 core). Returns false if any is missing. */

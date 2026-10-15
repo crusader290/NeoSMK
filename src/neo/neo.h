@@ -33,6 +33,12 @@ void neo_world_read(NeoWorld *w);
 /* Register menu options. Call before snesrecomp_init. */
 void neo_register_options(void);
 
+/* Gameplay tick: once per logic frame, after the frame ran. */
+void neo_tick(void);
+void neo_gameplay_register_options(void);
+/* Mini-turbo state for drawing sparks: stage 0 none, 1 yellow, 2 orange. */
+void neo_gameplay_spark_state(int player, int *stage, int *dir, int *boosting);
+
 /* Install the 3D overlay hook. Call after snesrecomp_init. */
 void neo_install(void);
 

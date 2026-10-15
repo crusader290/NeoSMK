@@ -109,6 +109,11 @@ void snesrecomp_reset(void);
 bool snesrecomp_save_state(const char *path);
 bool snesrecomp_load_state(const char *path);
 
+/* Incremented whenever emulated state jumps (reset, load-state, netplay
+ * sync). Code that keeps state alongside the emulation (e.g. gameplay mods)
+ * resets it when this changes, so every peer / replay stays in step. */
+uint32_t snesrecomp_state_epoch(void);
+
 /* FNV-1a hash of WRAM (netplay desync detection / lockstep verification). */
 uint32_t snesrecomp_wram_checksum(void);
 

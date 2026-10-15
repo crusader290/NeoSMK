@@ -50,6 +50,7 @@ add_library(smk_game OBJECT
     src/recomp/smk_autogen.c
     src/neo/neo_world.c
     src/neo/neo_overlay.c
+    src/neo/neo_gameplay.c
 )
 target_include_directories(smk_game PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(smk_game PUBLIC snesrecomp)

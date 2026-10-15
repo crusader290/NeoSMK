@@ -57,6 +57,9 @@ bool platform_init(const char *window_title, int scale);
  * frame's aspect: 640x480 for 256 columns, 2.5 px per column beyond that. */
 void platform_submit_frame(const uint8_t *pixels, int width, int y, int height);
 
+/* Save the next presented frame (window pixels, menu included) as a BMP. */
+void platform_request_screenshot(const char *path);
+
 /* Compose + present the most recently submitted frame and the menu. */
 void platform_present(void);
 

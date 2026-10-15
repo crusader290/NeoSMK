@@ -379,6 +379,7 @@ int main(int argc, char *argv[]) {
                 /* Full cycle-accurate frame on the LakeSnes CPU (CPU + NMI + HDMA +
                  * PPU). No recompiled shells. */
                 snesrecomp_realframe_end();
+                neo_tick();
             } else {
                 /* Hybrid: navigate menus with recompiled handlers, then latch into
                  * force-interpret once a target state is reached so the genuine ROM
@@ -415,6 +416,7 @@ int main(int argc, char *argv[]) {
 
                 /* Render PPU and present */
                 snesrecomp_end_frame();
+                neo_tick();
             }
 
             frame_no++;
@@ -452,6 +454,21 @@ int main(int argc, char *argv[]) {
                        frame_no, bus_wram_read16(0x36), bus_wram_read16(0x32),
                        bus_wram_read16(0x0158), bus_wram_read16(0x0172),
                        bus_wram_read16(0x80));
+            }
+
+            /* SMK_SHOT_AT="frame:file.bmp,...": screenshot the frame presented
+             * after logic frame N (visual regression checks). */
+            {
+                const char *sa = getenv("SMK_SHOT_AT");
+                if (sa) {
+                    char buf[1024];
+                    strncpy(buf, sa, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0;
+                    for (char *t = strtok(buf, ","); t; t = strtok(NULL, ",")) {
+                        char path[512]; int fr = 0;
+                        if (sscanf(t, "%d:%511s", &fr, path) == 2 && fr == frame_no)
+                            platform_request_screenshot(path);
+                    }
+                }
             }
 
             /* SMK_DUMP_M7=<prefix>: per-scanline Mode-7 state every 60 frames. */

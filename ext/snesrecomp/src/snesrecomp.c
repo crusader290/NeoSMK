@@ -26,6 +26,12 @@ static Snes *s_snes = NULL;
  * 478 — a 478-row buffer overflows by 4096 bytes into adjacent statics. */
 static uint8_t s_pixel_buf[512 * 480 * 4];
 
+/* Bumped whenever emulated state jumps (reset, load-state, netplay sync), so
+ * layers keeping their own per-frame state can resynchronise. */
+static uint32_t s_state_epoch = 0;
+
+uint32_t snesrecomp_state_epoch(void) { return s_state_epoch; }
+
 /* Camera reconstructed from the submitted frame's mode-7 lines. */
 static M7View s_view;
 
@@ -334,6 +340,7 @@ static void snesrecomp_mp_update(void) {
     if (!s_snes) return;
 
     if (!synced) {
+        s_state_epoch++;   /* both peers restart from the shared state */
         if (mp_is_host()) {
             uint8_t *buf = (uint8_t *)malloc(1 << 20);
             if (buf) { int sz = snes_saveState(s_snes, buf); mp_send_blob(buf, sz); free(buf); }
@@ -376,6 +383,7 @@ void snesrecomp_realframe_end(void) {
  * In real-frame mode the next frame reboots the game. */
 void snesrecomp_reset(void) {
     if (s_snes) snes_reset(s_snes, true);
+    s_state_epoch++;
 }
 
 /* Save the full machine state (LakeSnes save-state: CPU/PPU/APU/RAM/regs) to a
@@ -409,6 +417,7 @@ bool snesrecomp_load_state(const char *path) {
         free(buf);
     }
     fclose(f);
+    if (ok) s_state_epoch++;
     if (ok) printf("smk: loaded state <- %s\n", path);
     else    fprintf(stderr, "smk: load state failed (%s) — wrong ROM or corrupt?\n", path);
     return ok;

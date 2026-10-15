@@ -136,7 +136,17 @@ is rebindable under **Controller**. The **Graphics** menu has output resolution,
 aspect ratio (4:3 / 16:10 / 16:9, and whether menus are widened too), V-Sync, upscale filter,
 FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
 
-**Multiplayer** is lockstep netplay over TCP (host = P1, client = P2), from upstream.
+**NeoSMK** menu (Mario Kart 64-style additions, saved per machine):
+
+- **MK64 mini-turbo**, on by default. Power-slide (hop with R while steering), then flick
+  the D-pad toward the *outside* of the turn: one flick gives yellow sparks, three give orange.
+  Release R on orange for a short boost.
+
+**Debug → 3D camera markers** floats a 3D marker over every racer. It checks the camera that
+NeoSMK reconstructs from Mode 7 and that its 3D objects use.
+
+**Multiplayer** is lockstep netplay over TCP (host = P1, client = P2), from upstream. Both
+players need the same NeoSMK settings.
 
 ### Environment variables
 
@@ -148,6 +158,8 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
 | `SMK_STATS=1` | log fps / logic rate / frame time every 120 frames |
 | `SMK_SCRIPT=…`, `SMK_MAX_FRAMES=N` | scripted input (`frame:BTN`, `a-b:BTN`) and auto-exit |
 | `SMK_SNAPSHOT_PREFIX`, `SMK_SNAPSHOT_EVERY` | WRAM/VRAM/CGRAM snapshots for diffing |
+| `SMK_SHOT_AT="frame:file.bmp,…"` | screenshot the frame presented after logic frame N |
+| `SMK_DUMP_M7=<prefix>` | per-scanline Mode-7 state every 60 frames (camera debugging) |
 | `SMK_SHELLS=1`, `SMK_RECOMP=1`, … | upstream recompilation development modes (see `docs/`) |
 
 Example: boot to a race and benchmark the emulation with no GPU work:

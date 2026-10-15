@@ -5,7 +5,8 @@ and widescreen. This document scopes phase 2: bringing over **Mario Kart 64 game
 systems** and **replacing selected sprites with real 3D objects**, within the platform targets
 (Raspberry Pi 4, GLES 3.0, 640×480-class internal resolution, 60 FPS, < 512 MB).
 
-Nothing here is implemented yet. Each item lists what it needs, so we can pick an order.
+Status: **B1 camera reconstruction** and the **mini-turbo** are implemented (see below);
+the rest is still a plan.
 
 ## Ground rules
 
@@ -25,7 +26,7 @@ Nothing here is implemented yet. Each item lists what it needs, so we can pick a
 
 | System | What it involves | Effort |
 |---|---|---|
-| **Mini-turbo drift** (MK64 blue → orange sparks) | Hook the kart physics tick: while in SMK's power-slide state, count alternating steer inputs, then on release add a speed boost. Sparks drawn as renderer particles (visual only). | Medium; needs physics RAM map |
+| **Mini-turbo drift** (MK64 yellow → orange sparks) | **Done** (`src/neo/neo_gameplay.c`). While the slide timer (+$CA) runs, flicks of the D-pad to the outside of the turn charge it; releasing on orange holds speed at 125% of the pre-slide speed for 30 frames, then SMK's physics bleeds it off. Sparks and the boost flame are 3D particles. Deterministic, so netplay-safe if both peers enable it. | — |
 | **Mirror mode** | Presentation: flip the output horizontally and swap Left/Right input. Needs extra work to un-mirror HUD text (HUD sprites can be drawn from an unflipped pass). | Small for a first version |
 | **MK64 item set** (triple shells, spiny/blue shell, fake item box, triple mushroom, golden mushroom, Boo steal) | New behaviours on top of SMK's item engine: roulette table patch + new object handlers. Triple shells/mushrooms reuse existing objects; spiny needs a homing-to-leader routine. | Large; needs item and object RE |
 | **Time-trial ghosts** | Record per-tick inputs (deterministic) and replay a second simulation copy, or record kart pose. Render the ghost as a translucent 3D or billboard kart through the scene hook. | Medium; pairs with 3D karts |
@@ -37,7 +38,12 @@ Nothing here is implemented yet. Each item lists what it needs, so we can pick a
 The renderer composes into a depth-buffered internal target and exposes
 `renderer_set_scene_hook()` (`ext/snesrecomp/src/gfx/renderer.h`). That hook is where 3D draws.
 
-### B1. Camera reconstruction (prerequisite)
+### B1. Camera reconstruction (prerequisite) — done
+
+Implemented in `ext/snesrecomp/src/m7view.c`. The PPU's per-scanline Mode-7 state is fitted to a
+horizontal-axis pinhole (≤1.2 px max error vertically, ~1.5 px rms horizontally), with no RAM
+reverse-engineering needed. Debug → "3D camera markers" shows a marker over every racer.
+The original plan follows:
 
 To place 3D geometry consistently with the Mode-7 floor, we need the projection SMK uses:
 

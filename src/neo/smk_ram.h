@@ -27,7 +27,10 @@
 #define SMK_RACER_Y             0x1C   /* Y, map pixels, grows down the map */
 #define SMK_RACER_VEL_X         0x22   /* signed 8.8 per frame */
 #define SMK_RACER_VEL_Y         0x24
+#define SMK_RACER_HOP_Z         0x20   /* hop height (integer), +$1E fraction */
 #define SMK_RACER_HEADING       0x2A   /* $0000 north, $4000 east, $8000 south */
+#define SMK_RACER_SLIDE_STEER   0xC4   /* $8000 + $0100 steering right / $0200 left while sliding */
+#define SMK_RACER_SLIDE_TIME    0xCA   /* counts up during a power-slide, 0 otherwise */
 #define SMK_RACER_LAP           0xC1   /* 8-bit, player 1 (disassembly) (?) */
 #define SMK_RACER_SPEED         0xEA   /* |velocity|, 8.8 */
 

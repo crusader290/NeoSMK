@@ -215,6 +215,46 @@ bool platform_init(const char *window_title, int scale) {
     return true;
 }
 
+/* Screenshot of the next presented frame (dev / testing). */
+static char s_shot_path[512];
+
+void platform_request_screenshot(const char *path) {
+    SDL_strlcpy(s_shot_path, path ? path : "", sizeof(s_shot_path));
+}
+
+/* Read back the default framebuffer and write a 24-bit BMP. */
+static void save_screenshot(const char *path, int w, int h) {
+    uint8_t *px = (uint8_t *)SDL_malloc((size_t)w * h * 4);
+    if (!px) return;
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    FILE *f = fopen(path, "wb");
+    if (f) {
+        int row = (w * 3 + 3) & ~3;
+        uint32_t size = 54u + (uint32_t)row * (uint32_t)h;
+        uint8_t hdr[54] = { 'B', 'M' };
+        hdr[2] = size & 0xFF; hdr[3] = (size >> 8) & 0xFF; hdr[4] = (size >> 16) & 0xFF; hdr[5] = size >> 24;
+        hdr[10] = 54; hdr[14] = 40;
+        hdr[18] = w & 0xFF; hdr[19] = (w >> 8) & 0xFF; hdr[22] = h & 0xFF; hdr[23] = (h >> 8) & 0xFF;
+        hdr[26] = 1; hdr[28] = 24;
+        fwrite(hdr, 1, 54, f);
+        uint8_t *line = (uint8_t *)SDL_calloc(1, (size_t)row);
+        for (int y = 0; y < h && line; y++) {        /* GL rows are bottom-up, like BMP */
+            const uint8_t *src = px + (size_t)y * w * 4;
+            for (int x = 0; x < w; x++) {
+                line[x * 3 + 0] = src[x * 4 + 2];
+                line[x * 3 + 1] = src[x * 4 + 1];
+                line[x * 3 + 2] = src[x * 4 + 0];
+            }
+            fwrite(line, 1, (size_t)row, f);
+        }
+        SDL_free(line);
+        fclose(f);
+        printf("platform: screenshot -> %s\n", path);
+    }
+    SDL_free(px);
+}
+
 void platform_submit_frame(const uint8_t *pixels, int width, int y, int height) {
     s_pending_fb = pixels;
     s_pending_w = width;
@@ -259,6 +299,10 @@ void platform_present(void) {
     rs.scanlines = menu_overlay_get_scanlines();
     renderer_draw(pw, ph, menu_h, br / 255.0f, bg / 255.0f, bb / 255.0f, &rs);
     menu_overlay_render();
+    if (s_shot_path[0]) {
+        save_screenshot(s_shot_path, pw, ph);
+        s_shot_path[0] = 0;
+    }
     SDL_GL_SwapWindow(s_window);
 }
 
