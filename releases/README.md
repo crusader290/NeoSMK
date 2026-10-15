@@ -6,6 +6,34 @@ installing. **No ROM is included:** put your own US v1.0 dump
 (MD5 `7f25ce5a283d902694c52fb1152fa61a`) next to the executable as
 `Super Mario Kart (USA).sfc`, or pass its path as the first argument.
 
+## v0.2.0 (latest)
+
+Built from commit `0451d5f` (SDL 3.2.30, Dear ImGui 1.91.9b). Checksums are in
+[`v0.2.0/SHA256SUMS`](v0.2.0/SHA256SUMS). Same platforms, requirements and toolchains as v0.1.0
+below.
+
+| File | Platform |
+|---|---|
+| [`neosmk-linux-arm64-pi4.tar.gz`](v0.2.0/neosmk-linux-arm64-pi4.tar.gz) | Raspberry Pi 4 (and newer), 64-bit Raspberry Pi OS Bookworm or later |
+| [`neosmk-linux-x64.tar.gz`](v0.2.0/neosmk-linux-x64.tar.gz) | x86-64 Linux with glibc ≥ 2.34 |
+| [`neosmk-windows-x64.zip`](v0.2.0/neosmk-windows-x64.zip) | Windows 10/11 x64 |
+
+**New since v0.1.0** (the first Mario Kart 64-style features; see the **NeoSMK** menu):
+
+- **MK64 mini-turbo** (on by default). Power-slide with R, flick the D-pad toward the outside of the
+  turn (yellow sparks, then orange after three flicks), release on orange for a boost. Gameplay
+  change; netplay peers need the same setting.
+- **3D item boxes** (on by default). Spinning, translucent rainbow boxes with blob shadows over
+  the "?" panels; a box vanishes once its panel is used. Visual only.
+- **Debug → 3D camera markers.** A marker over every racer, placed with the camera that NeoSMK
+  reconstructs from Mode 7.
+- Developer tools: `SMK_SHOT_AT`, `SMK_POKE16`, `SMK_DUMP_M7` (see the main README).
+
+**Tested:** all three packages ran the ROM title → menus → race. Linux x64 and the Pi 4 build
+(under qemu-aarch64) produced WRAM/VRAM/CGRAM snapshots byte-identical to the reference run;
+the Linux build's screenshots show the item boxes. Windows was checked under Wine. **Not yet run
+on real Raspberry Pi or native Windows hardware.**
+
 ## v0.1.0
 
 Built from commit `c10ee17` (SDL 3.2.30, Dear ImGui 1.91.9b). Checksums are in
