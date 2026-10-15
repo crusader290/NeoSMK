@@ -1,0 +1,105 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x64:
+    name: Linux x64
+    runs-on: ubuntu-24.04
+    # Bookworm's glibc (2.36) keeps the binary runnable on older distros.
+    container: debian:bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: scripts/install-deps-debian.sh
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build
+      - name: Smoke test
+        run: ./build/neosmk --version
+      - name: Package
+        run: |
+          cmake --install build --prefix dist/neosmk-linux-x64
+          tar -C dist -czf neosmk-linux-x64.tar.gz neosmk-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neosmk-linux-x64
+          path: neosmk-linux-x64.tar.gz
+
+  linux-arm64-pi4:
+    name: Linux ARM64 (Raspberry Pi 4)
+    runs-on: ubuntu-24.04
+    # Cross-compiled on Debian Bookworm = Raspberry Pi OS (64-bit) Bookworm.
+    container: debian:bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          scripts/install-deps-debian.sh arm64
+          apt-get install -y --no-install-recommends qemu-user
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/aarch64-linux-gnu.cmake
+          -DNEOSMK_TUNE_PI4=ON
+      - name: Build
+        run: cmake --build build
+      - name: Smoke test (qemu)
+        run: qemu-aarch64 -L /usr/aarch64-linux-gnu ./build/neosmk --version
+      - name: Package
+        run: |
+          cmake --install build --prefix dist/neosmk-linux-arm64-pi4
+          tar -C dist -czf neosmk-linux-arm64-pi4.tar.gz neosmk-linux-arm64-pi4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neosmk-linux-arm64-pi4
+          path: neosmk-linux-arm64-pi4.tar.gz
+
+  windows-x64:
+    name: Windows x64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Smoke test
+        run: .\build\Release\neosmk.exe --version
+      - name: Package
+        shell: pwsh
+        run: |
+          cmake --install build --config Release --prefix dist/neosmk-windows-x64
+          Compress-Archive -Path dist/neosmk-windows-x64 -DestinationPath neosmk-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neosmk-windows-x64
+          path: neosmk-windows-x64.zip
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-x64, linux-arm64-pi4, windows-x64]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" artifacts/*
+          --repo "$GITHUB_REPOSITORY" --title "NeoSMK $GITHUB_REF_NAME" --generate-notes

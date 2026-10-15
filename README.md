@@ -1,246 +1,198 @@
-# Super Mario Kart — Static Recompilation
+# NeoSMK
 
-Static recompilation of **Super Mario Kart** (SNES, 1992) from WDC 65C816 assembly to native C code, playable on modern hardware via SDL2.
+**Super Mario Kart** (SNES, 1992) static recompilation, rebuilt on SDL3 + OpenGL ES 3.0
+for **Raspberry Pi 4 (ARM64)**, **Windows x64** and **Linux x64** — with a fixed-timestep
+game loop, a GPU compositor, and true **16:9 widescreen** races.
 
-Part of the [sp00nznet](https://github.com/sp00nznet) recompilation portfolio. This is the first SNES (65816 CPU) target in the series.
+NeoSMK is a fork of [sp00nznet/mk](https://github.com/sp00nznet/mk) (65C816 → C recompilation
+on the [LakeSnes](https://github.com/elzo-d/LakeSnes)-based `snesrecomp` hardware backend).
+The game logic and hardware emulation are unchanged; this fork replaces the platform layer
+and is the base for the Mario Kart 64-style work in [`docs/roadmap_mk64.md`](docs/roadmap_mk64.md).
 
-## Status
+## Targets
 
-**Playable end-to-end.** A cold boot walks the authentic flow from controller input —
-title → driver select → 50cc class / cup select → a live **Mode-7 race** — with a Dear
-ImGui menu bar, save-states, configurable keyboard + gamepad controls for two players, and
-**lockstep netplay**. The SNES hardware (PPU Modes 0–7, SPC700 + DSP audio, DMA/HDMA, DSP-1
-coprocessor) is fully emulated by the LakeSnes backend.
+| | |
+|---|---|
+| Minimum hardware | Raspberry Pi 4, 2 GB |
+| CPU architectures | ARM64 / AArch64, x86-64 |
+| Rendering API | OpenGL ES 3.0 (desktop OpenGL 3.3 core fallback) |
+| Window / input / audio | SDL 3.2 (static, built from the pinned release) |
+| Internal resolution | 640×480 (4:3) · 856×480 (16:9) · 770×480 (16:10) |
+| Performance | locked 60 FPS on a 60 Hz display (vsync-snapped ticks) |
+| Frame budget | 16.67 ms |
+| Output | 480p / 720p / 1080p, windowed, exclusive fullscreen or borderless |
+| Upscale | sharp-bilinear (default), nearest, linear; optional scanlines |
+| AA | none or cheap FXAA (9 taps at internal resolution) |
+| Post-processing | minimal |
+| RAM | ~15 MB resident for emulation (well under the 512 MB budget) |
+| Game logic | fixed 60.0988 Hz timestep (one NTSC SNES frame), independent renderer |
 
-Two execution paths share the same backend: **real-frame mode** (the default) runs the
-genuine ROM through LakeSnes's cycle-accurate frame, so the whole game plays today; the
-**recompiled-shell path** (`SMK_SHELLS=1`) runs hand-written `RECOMP_PATCH` functions and is
-where the static-recompilation work grows incrementally. Recompiled functions are defined
-with `RECOMP_PATCH(name, snes_addr) { ... }` and auto-register in snesrecomp's dispatch table
-at static-init time — adding a translated function is a one-line change, no central list.
+Geometry, lighting, shadows and texture-size targets apply to the 3D-object work in the
+roadmap; the renderer already composes into a depth-buffered internal target for it.
 
-![Title Screen](newtitle.png)
+## What's new vs upstream
 
-The full menu flow runs from controller input — title → driver select → class/cup select:
-
-![Driver Select](charselect.png)
-
-![Class / Cup Select](class.png)
-
-The Mode-7 race renders and plays — perspective track, karts, HUD, split-screen:
-
-![Mode-7 Race](race.png)
-![Mode-7 Race 2](race2.png)
-
-**Lockstep netplay** — two machines run the same deterministic emulation in sync (host =
-Player 1, client = Player 2), starting from a shared save-state:
-
-![Multiplayer netplay](mp.png)
-
-A Dear ImGui menu bar (File / Graphics / Sound / Controller / Multiplayer / Help) overlays the game — see [Menu](#menu).
-
-### What works
-- **Full authentic flow from controller input** — title → driver select → 50cc class / cup
-  select → Mode-7 race, all driven by the genuine ROM's state sequencer (`$81:E000`)
-- **Mode-7 race** rendering + gameplay: perspective track, karts, HUD, lap timer, split-screen
-- **Dear ImGui menu** overlaying the game — File / Graphics / Sound / Controller / Multiplayer / Help
-- **Save-states** — File → Save/Load (and F5/F8), full machine state via LakeSnes; File → New resets
-- **Configurable input** for **both players** — rebind keyboard *and* Xbox-style gamepad per button
-- **Lockstep netplay** (TCP) with input-delay buffering — host/join, save-state sync on connect,
-  deterministic in-sync emulation (verified by matching WRAM checksums)
-- Full boot chain: reset vector → hardware init → WRAM 0x55 fill → PPU/APU/DSP-1 setup → Mode-7 tables
-- Custom tile/tilemap decompressor (`$84:E09E`) — all 7 compression modes + E0+ extended counts
-- Joypad/auto-joypad input with edge detection; real palettes ROM → CGRAM; per-scanline HDMA
-- LakeSnes renders all PPU scanlines per frame; SDL2 window (3× scale by default), 60 fps, audio
-
-### What's next
-- **Grow the recompiled-shell path** (`SMK_SHELLS=1`) to drive gameplay — currently the shells
-  render the menus but the Mode-7 race's multi-frame init/fade-in needs the real frame
-  (the default real-frame path handles it). See `docs/smk_flow_re.md`.
-- Netplay polish: rollback / over-the-wire desync detection; "drop straight into 2-player on connect"
-- More recompiled functions (the long-term goal: replace real-frame with recompiled C)
-
-### Recent (June 2026)
-- **Cracked the menu→race flow** — root-caused the long-standing menu blocker to a power-on
-  WRAM fill (`$2E` game-mode read as 2-player on a zero-filled RAM); fixed with a `0x55` fill
-  matching hardware/snes9x. Full RE writeup in [`docs/smk_flow_re.md`](docs/smk_flow_re.md),
-  cracked headlessly via a BizHawk + snes9x-core harness (`tools/bizhawk/`).
-- **Real-frame mode** — runs the genuine ROM via LakeSnes's full frame so the whole game plays now.
-- **ImGui menu, save-states, 2-player input, and lockstep netplay** added to snesrecomp (generic).
-- **Fixed a real `s_pixel_buf` overflow** (478 vs 480 rows) that silently zeroed adjacent statics.
-
-### Earlier
-- **Auto-registered dispatch** via `RECOMP_PATCH(name, snes_addr) { ... }` — linker-priority static
-  constructors, no central list. Pattern inspired by N64Recomp's `RECOMP_PATCH`.
-- **Public 65816 op kit** — `<snesrecomp/cpu_ops.h>` (`op_lda_*`, `op_sta_*`, `op_rep`, …).
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│                 smk_launcher                      │
-│  ┌──────────────────────────────────────────┐    │
-│  │  src/recomp/ — 48 Recompiled functions   │    │
-│  │  smk_boot.c  — NMI, state machine, input │    │
-│  │  smk_init.c  — Init, transition dispatch │    │
-│  │  smk_title.c — Decompressor, PPU, menus  │    │
-│  └──────────────────────────────────────────┘    │
-│                       │                           │
-│              bus_read8 / bus_write8               │
-│                       │                           │
-│  ┌──────────────────────────────────────────┐    │
-│  │  snesrecomp (ext/snesrecomp/)            │    │
-│  │  ┌────────────────────────────────────┐  │    │
-│  │  │  LakeSnes — Cycle-accurate SNES HW │  │    │
-│  │  │  Real PPU (Mode 0-7, sprites, etc) │  │    │
-│  │  │  Real SPC700 + DSP audio           │  │    │
-│  │  │  Real DMA (GPDMA + HDMA)           │  │    │
-│  │  │  Full memory bus routing            │  │    │
-│  │  └────────────────────────────────────┘  │    │
-│  │  SDL2 platform (window, audio, input)    │    │
-│  └──────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────┘
-```
-
-In the **recompiled-shell path** (`SMK_SHELLS=1`), recompiled game code acts as the CPU — it
-calls `bus_read8(bank, addr)` / `bus_write8(bank, addr, val)`, which route through LakeSnes's
-real memory bus to the actual PPU, APU, DMA, and cartridge hardware. In the **default
-real-frame path**, LakeSnes's own CPU executes the genuine ROM each frame (`snes_runFrame`)
-— identical to a cycle-accurate emulator — so the full game plays while the recompiled
-functions are still being written. Either way, all PPU/APU/DMA behaviour is real.
-
-## Controls
-
-Default Player 1 keyboard (rebindable in the menu):
-
-| Key | SNES Button |
-|-----|-------------|
-| Arrow keys | D-pad |
-| Z | B |
-| X | Y |
-| A | A |
-| S | X |
-| Q | L |
-| W | R |
-| Enter | Start |
-| Right Shift | Select |
-| F5 / F8 | Save / Load state |
-| Escape | Quit |
-
-**Gamepads** (Xbox-style, via SDL_GameController) work out of the box for both
-players — A→B, B→A, X→Y, Y→X, shoulders→L/R, Back→Select, Start→Start, d-pad and
-left stick steer. Rebind any of it in **Controller** (P1/P2 tabs).
-
-## Menu
-
-A Dear ImGui menu bar (modelled on [LinksAwakening](https://github.com/sp00nznet/LinksAwakening))
-overlays the game:
-
-- **File** — New (reset/restart), Save / Load state (`smk_state.sav`; also **F5 / F8**),
-  Settings ▸ (save/load `smk_config.ini`), Quit
-- **Graphics** — window scale, V-Sync, texture filter, scanlines, show FPS
-- **Sound** — master volume, mute
-- **Controller** — rebind keyboard **and** gamepad for **Player 1 and Player 2**
-- **Multiplayer** — Host / Join (IP:port), input-delay, connection status — lockstep netplay
-- **Help → About** — links back to this repository
-
-The menu auto-disables in headless/scripted runs (`SMK_HEADLESS`/`SMK_SCRIPT`).
+- **SDL3 + OpenGL ES 3.0 renderer.** PPU frame → internal 640×480 render target (with depth,
+  ready for 3D objects) → optional FXAA → aspect-fit output pass. Everything is GPU triangles;
+  no CPU scaling. Falls back to desktop GL 3.3 core where a driver has no ES contexts.
+- **Fixed-timestep loop, independent renderer.** Logic runs in 1/60.0988 s ticks; the
+  renderer presents the latest frame. On a 60 Hz vsync'd display, ticks snap 1:1 to refreshes,
+  so there's no judder from the 60.0988 vs 60.000 Hz mismatch. A ±0.5% audio-stream ratio
+  controller absorbs the drift, so there are no crackles or overruns.
+- **Widescreen (16:9 / 16:10).** The PPU renders up to 64 extra columns each side of the
+  256-pixel line: Mode-7 and the wrapping scenery layers extend for real, with no stretching.
+  It's presentation only: sprite limits are still counted over the hardware line and save-states
+  never see it. WRAM/VRAM/CGRAM snapshots are byte-identical to 4:3 through a full race.
+  By default only Mode-7 frames (races) are widened; menus keep 4:3.
+- **Portable, deterministic builds.** One CMake project for all three targets; static SDL; CI
+  produces Linux x64, Raspberry Pi 4 (ARM64) and Windows x64 packages. The ARM64 build's
+  emulated state is byte-identical to x64, so netplay works across them.
 
 ## Building
 
-### Prerequisites
-- CMake 3.16+
-- Visual Studio 2022 (MSVC)
-- SDL2 via vcpkg: `vcpkg install sdl2:x64-windows`
-- Python 3.10+ (for disassembler and analysis tools)
+The ROM is not included. Supply your own **US v1.0** dump
+(MD5 `7f25ce5a283d902694c52fb1152fa61a`) as `Super Mario Kart (USA).sfc` next to the binary,
+or pass its path as an argument.
 
-### Build
+CMake ≥ 3.20 and a C17/C++17 compiler are required. SDL 3.2.30 is downloaded and built
+statically at configure time (`-DNEOSMK_SYSTEM_SDL3=ON` uses an installed SDL3 instead;
+`-DNEOSMK_SDL3_SOURCE=<dir|tarball>` builds offline).
 
-```bash
-cmake -B build -G "Visual Studio 17 2022" -A x64 \
-  -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+### Linux x64 / Raspberry Pi 4 (native)
 
-cmake --build build --config Debug
+```sh
+sudo scripts/install-deps-debian.sh            # Debian, Ubuntu, Raspberry Pi OS
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+# on the Pi add: -DNEOSMK_TUNE_PI4=ON  (Cortex-A72 code generation)
+cmake --build build
+./build/neosmk "Super Mario Kart (USA).sfc"
 ```
 
-### Run
+### Raspberry Pi 4 (cross-compile from x86-64 Debian Bookworm)
 
-```bash
-build/Debug/smk_launcher.exe
+```sh
+sudo scripts/install-deps-debian.sh arm64
+cmake -B build-pi4 -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/aarch64-linux-gnu.cmake -DNEOSMK_TUNE_PI4=ON
+cmake --build build-pi4
 ```
 
-The ROM file is not included — supply your own US v1.0 copy (MD5: `7f25ce5a283d902694c52fb1152fa61a`).
+Built against Bookworm's glibc, the binary runs on 64-bit Raspberry Pi OS Bookworm and newer.
 
-By default the launcher runs in **real-frame mode** — the genuine ROM via LakeSnes's
-full cycle-accurate frame — so menus *and* the Mode-7 race render and play at full
-speed out of the box. (The recompiled per-frame shells can't yet drive the race's
-multi-frame setup; as gameplay functions are recompiled they take over.)
+### Windows x64
 
-For recompilation development, use the recompiled-shell path:
+Visual Studio 2022 (MSVC), no package manager needed:
 
-```bash
-SMK_SHELLS=1 build/Debug/smk_launcher.exe           # recompiled per-frame shells
+```sh
+cmake -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+build\Release\neosmk.exe
 ```
 
-## Decompressor
+The exe is self-contained (static SDL and CRT). MinGW-w64 cross builds from Linux also work:
+`-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64.cmake`.
 
-The custom decompressor at `$84:E09E` handles SMK's tile/tilemap compression format:
+### CI
 
-| Mode | Encoding | Description |
-|------|----------|-------------|
-| `$00` | Raw | Copy N bytes from stream |
-| `$20` | RLE | Repeat 1 byte N times |
-| `$40` | Word fill | Alternate 2 bytes for N entries |
-| `$60` | Inc fill | Store incrementing byte N times |
-| `$80` | Backref | Copy from earlier in buffer (abs offset + base) |
-| `$A0` | Inv backref | Copy with XOR $FF (inverted) |
-| `$C0` | Byte backref | Copy from buf_pos - offset (1-byte offset) |
+`.github/workflows/build.yml` builds all three targets on every push and smoke-tests each
+binary (the ARM64 one under qemu). Pushing a `v*` tag publishes a release with
+`neosmk-linux-x64.tar.gz`, `neosmk-linux-arm64-pi4.tar.gz` and `neosmk-windows-x64.zip`.
 
-Commands `$E0`–`$FE` use extended 10-bit counts: 1 data byte + cmd bits 0-1 as high bits.
+## Running on a Raspberry Pi 4
 
-## Project Structure
+- **Desktop (X11/Wayland):** run as normal; `--borderless` for fullscreen.
+- **Console / no desktop (best performance):** `SDL_VIDEO_DRIVER=kmsdrm ./neosmk --fullscreen --720p`
+  drives the display directly through KMS/DRM. `--fullscreen` switches the display to the chosen
+  preset, which also suits 4K TVs.
+- Use the 64-bit OS with the default `vc4-kms-v3d` overlay. The V3D driver provides
+  OpenGL ES 3.1.
+- `SMK_STATS=1` prints the present rate, logic rate and frame time every 2 s. See
+  [Performance](#performance).
+
+## Usage
 
 ```
-├── include/smk/       functions.h (smk_XXXXXX forward declarations)
-├── src/
-│   ├── recomp/        Recompiled game functions (smk_boot.c, smk_init.c, smk_title.c)
-│   └── main/          main.c — entry point, frame loop
-├── ext/snesrecomp/    snesrecomp library (LakeSnes backend + SDL2 platform):
-│                        recomp_patch.h    — RECOMP_PATCH auto-registration macro
-│                        cpu_ops.h         — 65816 instruction helpers (op_lda_*, op_sta_*, …)
-│                        menu_overlay.cpp  — Dear ImGui menu (File/Graphics/Sound/Controller/MP/Help)
-│                        mp_session.c      — generic SNES lockstep netplay (TCP)
-│                        third_party/imgui — vendored Dear ImGui
-├── docs/
-│   └── smk_flow_re.md  reverse-engineering of the menu→race flow
-└── tools/
-    ├── disasm/        65816 disassembler (M/X flag tracking, all addressing modes)
-    ├── bizhawk/       headless BizHawk + snes9x-core ground-truth harness
-    └── lakesnes_ref.c native LakeSnes runner (scripted input, snapshot/BMP dumps)
+neosmk [--480p|--720p|--1080p] [--windowed|--fullscreen|--borderless] [rom.sfc]
 ```
 
-## ROM Details
+| Key | |
+|---|---|
+| Arrows | D-pad |
+| Z / X / A / S | B / Y / A / X |
+| Q / W | L / R |
+| Enter / Right Shift | Start / Select |
+| F1 (or gamepad Guide) | show / hide the menu bar |
+| F5 / F8 | save / load state |
+| F11, Alt+Enter | toggle borderless fullscreen |
+| Esc | quit |
 
-| Field | Value |
-|-------|-------|
-| Title | SUPER MARIO KART |
-| System | Super Nintendo (SNES) |
-| CPU | WDC 65C816 @ 3.58 MHz |
-| Coprocessor | DSP-1 (math) + SPC700 (audio) |
-| Mapping | HiROM FastROM |
-| Size | 512 KB (8 × 64 KB banks, C0–C7) |
-| SRAM | 2 KB |
-| Region | USA |
-| CRC32 | CD80DB86 |
+Xbox-style gamepads work out of the box for both players (SDL3 gamepad database). Everything
+is rebindable under **Controller**. The **Graphics** menu has output resolution, display mode,
+aspect ratio (4:3 / 16:10 / 16:9, and whether menus are widened too), V-Sync, upscale filter,
+FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
 
-## Key References
+**Multiplayer** is lockstep netplay over TCP (host = P1, client = P2), from upstream.
 
-- [Yoshifanatic1/Super-Mario-Kart-Disassembly](https://github.com/Yoshifanatic1/Super-Mario-Kart-Disassembly) — Full 65816 + SPC700 disassembly (Asar)
-- [jvipond/super_mario_kart_disassembly](https://github.com/jvipond/super_mario_kart_disassembly) — Trace-based disassembly with Python tooling
-- [jvipond/super_mario_kart_recompilation](https://github.com/jvipond/super_mario_kart_recompilation) — Prior LLVM-based recomp attempt
-- [MrL314/smk-spc700-disassembly](https://github.com/MrL314/smk-spc700-disassembly) — SPC700 audio driver disassembly
-- [LakeSnes](https://github.com/elzo-d/LakeSnes) — Cycle-accurate SNES emulator in C (hardware backend)
+### Environment variables
 
-## License
+| Variable | Effect |
+|---|---|
+| `SMK_GL=es` / `gl` | force OpenGL ES 3.0 or desktop GL 3.3 core |
+| `SMK_FAST=1` | unthrottled (no pacing, no vsync), for benchmarks / automation |
+| `SMK_HEADLESS=1` | hidden window, no menu; runs without a GPU if none is available |
+| `SMK_STATS=1` | log fps / logic rate / frame time every 120 frames |
+| `SMK_SCRIPT=…`, `SMK_MAX_FRAMES=N` | scripted input (`frame:BTN`, `a-b:BTN`) and auto-exit |
+| `SMK_SNAPSHOT_PREFIX`, `SMK_SNAPSHOT_EVERY` | WRAM/VRAM/CGRAM snapshots for diffing |
+| `SMK_SHELLS=1`, `SMK_RECOMP=1`, … | upstream recompilation development modes (see `docs/`) |
 
-This project contains no Nintendo copyrighted material. The ROM file is not included and must be legally obtained by the user.
+Example: boot to a race and benchmark the emulation with no GPU work:
+
+```sh
+SDL_VIDEO_DRIVER=dummy SMK_HEADLESS=1 SMK_FAST=1 SMK_MAX_FRAMES=2400 \
+SMK_SCRIPT="420:START,421:Y,600:START,660:START,720:START,780:START,840:START,900:START,960:START,1020:START,1080:START,1140:START,1200:START,1260:START,1320:START,1380:START,1440:START,1500:START,1550-2400:B" \
+./neosmk
+```
+
+## Performance
+
+On a 2.1 GHz Xeon core, emulation costs **3.5 ms per frame** at 4:3 and **4.0 ms** in 16:9
+races, with ~15 MB resident. Under the CPU-only llvmpipe rasterizer at 1080p the game holds
+60 FPS.
+
+The Raspberry Pi 4 hasn't been measured on hardware yet. A Cortex-A72 is roughly 3–4× slower
+per core, which puts emulation at an estimated 11–16 ms of the 16.67 ms budget. Profiling shows
+the PPU's per-pixel compositor is about half the cost and the 65C816 core about a fifth. If the
+Pi misses 60, the plan is a per-scanline PPU fast path and/or moving emulation off the render
+thread (the Pi has 4 cores). Please run `SMK_STATS=1` on a Pi and report the numbers.
+
+## Known limitations
+
+- **Widescreen edges:** the game only spawns and animates objects inside its 256-pixel view, so
+  karts and items can appear or disappear at the extended edges. The 1–2 black lines the game
+  draws across the top of the 4:3 picture don't extend into the sides.
+- **Windows:** without a driver ES extension or ANGLE, SDL can't create an ES context and NeoSMK
+  uses desktop GL 3.3 (same renderer, same output).
+
+## Project structure
+
+```
+├── src/main/main.c           entry point, CLI, fixed-timestep loop, test/RE hooks
+├── src/recomp/               recompiled game functions (upstream)
+├── include/smk/              smk_XXXXXX declarations
+├── ext/snesrecomp/           SNES backend library
+│   ├── src/platform_sdl3.c   SDL3 window / GL context / audio / scheduler
+│   ├── src/gfx/              GL ES loader + renderer (internal target, FXAA, output)
+│   ├── src/menu_overlay.cpp  ImGui menu + GL ES draw backend
+│   ├── ext/LakeSnes/snes/    hardware emulation (PPU has the widescreen extension)
+│   └── third_party/imgui/    Dear ImGui 1.91.9b (+ SDL3 backend)
+├── cmake/                    SDL3 dependency, cross toolchains
+├── scripts/                  dependency install
+├── docs/                     upstream RE notes + roadmap_mk64.md
+└── tools/                    upstream RE tooling (disassembler, harnesses)
+```
+
+## Credits and license
+
+MIT. Built on sp00nznet/mk, snesrecomp and LakeSnes (MIT), Dear ImGui (MIT) and SDL (zlib).
+See [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md). This project contains no Nintendo
+copyrighted material.
