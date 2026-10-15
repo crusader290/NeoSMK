@@ -48,6 +48,11 @@ roadmap; the renderer already composes into a depth-buffered internal target for
   produces Linux x64, Raspberry Pi 4 (ARM64) and Windows x64 packages. The ARM64 build's
   emulated state is byte-identical to x64, so netplay works across them.
 
+## Downloads
+
+Prebuilt **v0.1.0** builds for Raspberry Pi 4 (ARM64), Linux x64 and Windows x64 are in
+[`releases/`](releases/README.md).
+
 ## Building
 
 The ROM is not included. Supply your own **US v1.0** dump
