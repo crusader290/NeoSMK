@@ -10,8 +10,8 @@
  *       RGBA8 + 24-bit depth — 2.5 px per SNES column, 480 lines
  *        · SNES layer drawn as a full-screen triangle (bilinear over the
  *          2x-doubled PPU output = near-sharp 256→640 resample)
- *        · scene hook: 3D geometry drawn here with depth testing (unused
- *          until objects are promoted to 3D — see docs/roadmap_mk64.md)
+ *        · 3D layer (scene3d.h hook): geometry drawn here with depth
+ *          testing, cameras reconstructed from the Mode-7 lines (m7view.h)
  *        ▼
  *   [2] optional FXAA at internal resolution (cheap, 9 taps)
  *        ▼
@@ -48,10 +48,6 @@ typedef struct {
     int scanlines;   /* 1 = darken between SNES lines */
 } RendererSettings;
 
-/* Called while the internal target is bound, after the SNES layer is
- * drawn, with depth testing available. `user` is passed through. */
-typedef void (*RendererSceneFn)(void *user);
-
 /* Create GL objects. Requires a current context with smkgl_load() done. */
 bool renderer_init(void);
 void renderer_shutdown(void);
@@ -62,8 +58,6 @@ void renderer_upload_snes(const uint8_t *fb, int width, int y, int h);
 
 /* Current internal target size (pixels). */
 void renderer_get_internal_size(int *w, int *h);
-
-void renderer_set_scene_hook(RendererSceneFn fn, void *user);
 
 /* Compose and draw one output frame into the default framebuffer of size
  * out_w x out_h (pixels). `top_inset` pixels at the top are reserved for

@@ -11,6 +11,15 @@ typedef struct Ppu Ppu;
 #define PPU_WIDE_MAX 64
 enum { ppu_wideModeMode7 = 0, ppu_wideModeAlways = 1 };
 
+typedef struct PpuM7Line {
+  bool valid;        // line rendered in mode 7 (not forced blank)
+  bool xFlip;
+  int32_t startX;    // m7startX / m7startY (8.8 fixed) for this line
+  int32_t startY;
+  int16_t a;         // m7 matrix a / c (per-pixel step)
+  int16_t c;
+} PpuM7Line;
+
 #include "snes.h"
 #include "statehandler.h"
 
@@ -144,6 +153,9 @@ struct Ppu {
   // (256 + 2 * wideExt) pixels per row, 8 bytes each (sub + main, like
   // pixelBuffer), 239 rows per field, both fields
   uint8_t widePixelBuffer[(256 + 2 * PPU_WIDE_MAX) * 8 * 239 * 2];
+  // per-line mode-7 capture (NeoSMK, presentation only): ground position of
+  // screen column x on line y is ((startX + a * x) / 256, (startY + c * x) / 256)
+  PpuM7Line m7lines[240];
 };
 
 enum { ppu_pixelOutputFormatXBGR = 0, ppu_pixelOutputFormatBGRX = 1 };
@@ -167,5 +179,7 @@ void ppu_setWidescreen(Ppu* ppu, int ext, int mode);
 // copy the last frame as (256 + 2 * ext) * 2 columns x 224/239 rows (no line
 // doubling), XBGR/BGRX like ppu_putPixels; returns the number of rows
 int ppu_putPixelsWide(Ppu* ppu, uint8_t* pixels);
+// mode-7 line capture of the last frame (lines 1..239 at index line - 1)
+const PpuM7Line* ppu_getM7Lines(Ppu* ppu);
 
 #endif

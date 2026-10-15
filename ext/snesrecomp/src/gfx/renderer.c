@@ -3,6 +3,7 @@
  */
 #include "renderer.h"
 #include "gl.h"
+#include "scene3d_internal.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -112,8 +113,6 @@ static struct {
     GLint  out_src, out_dst, out_sharp, out_scan;
     Target internal, post;
     int    int_w, int_h;     /* internal target size */
-    RendererSceneFn scene_fn;
-    void  *scene_user;
 } R;
 
 static bool make_pass(Pass *p, const char *name, const char *fs) {
@@ -199,11 +198,16 @@ bool renderer_init(void) {
         renderer_shutdown();
         return false;
     }
+    if (!scene3d_init()) {
+        renderer_shutdown();
+        return false;
+    }
     R.ready = true;
     return true;
 }
 
 void renderer_shutdown(void) {
+    scene3d_shutdown();
     if (R.snes.prog) glDeleteProgram(R.snes.prog);
     if (R.fxaa.prog) glDeleteProgram(R.fxaa.prog);
     if (R.out.prog)  glDeleteProgram(R.out.prog);
@@ -244,11 +248,6 @@ void renderer_get_internal_size(int *w, int *h) {
     if (h) *h = R.int_h;
 }
 
-void renderer_set_scene_hook(RendererSceneFn fn, void *user) {
-    R.scene_fn = fn;
-    R.scene_user = user;
-}
-
 static void draw_pass(const Pass *p, GLuint tex, const float rect[4], bool flip_y) {
     glUseProgram(p->prog);
     glUniform4f(p->u_rect, rect[0], rect[1], rect[2], rect[3]);
@@ -278,10 +277,8 @@ void renderer_draw(int out_w, int out_h, int top_inset,
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     draw_pass(&R.snes, R.snes_tex, R.snes_rect, true);
-    if (R.scene_fn) {
-        glEnable(GL_DEPTH_TEST);
-        glDepthFunc(GL_LEQUAL);
-        R.scene_fn(R.scene_user);
+    if (scene3d_has_hook()) {
+        scene3d_run_hook(R.int_w, R.int_h);
         glDisable(GL_DEPTH_TEST);
         glBindVertexArray(R.vao);
     }

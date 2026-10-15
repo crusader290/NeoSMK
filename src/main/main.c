@@ -10,6 +10,7 @@
 #include <snesrecomp/menu_overlay.h>
 #include <snesrecomp/mp_session.h>
 #include "smk/functions.h"
+#include "neo/neo.h"
 
 #define SMK_STATE_PATH "smk_state.sav"
 
@@ -171,11 +172,16 @@ int main(int argc, char *argv[]) {
     printf("==================================================\n");
     printf("Powered by snesrecomp (LakeSnes backend), SDL3 + OpenGL ES 3.0\n\n");
 
+    /* NeoSMK options must exist before the config is loaded at init. */
+    neo_register_options();
+
     /* Initialize snesrecomp (LakeSnes hardware + SDL3 / GL ES platform) */
     if (!snesrecomp_init("NeoSMK - Super Mario Kart", 3)) {
         fprintf(stderr, "Failed to initialize snesrecomp. Exiting.\n");
         return 1;
     }
+
+    neo_install();
 
     /* Load ROM (LakeSnes auto-detects HiROM, sets up cart mapping) */
     printf("Loading ROM: %s\n", rom_path);
@@ -446,6 +452,13 @@ int main(int argc, char *argv[]) {
                        frame_no, bus_wram_read16(0x36), bus_wram_read16(0x32),
                        bus_wram_read16(0x0158), bus_wram_read16(0x0172),
                        bus_wram_read16(0x80));
+            }
+
+            /* SMK_DUMP_M7=<prefix>: per-scanline Mode-7 state every 60 frames. */
+            if (getenv("SMK_DUMP_M7") && frame_no % 60 == 0) {
+                char path[512];
+                snprintf(path, sizeof(path), "%s_f%06d.txt", getenv("SMK_DUMP_M7"), frame_no);
+                snesrecomp_dump_m7(path);
             }
 
             /* SMK_STATS=1: present rate / logic rate / frame time every 2 s

@@ -53,3 +53,8 @@ int menu_overlay_pad_button_for_button(int player, int idx) {
     if (idx < 0 || idx >= 12) return -1;
     return pad[idx];
 }
+void menu_overlay_add_option(const char *menu, const char *label, const char *key,
+                             int *value, int max, const char *const *choices,
+                             const char *tooltip) {
+    (void)menu; (void)label; (void)key; (void)value; (void)max; (void)choices; (void)tooltip;
+}

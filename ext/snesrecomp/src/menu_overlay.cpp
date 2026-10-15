@@ -89,6 +89,18 @@ struct MenuState {
 
 static MenuState g;
 
+/* Game-registered options (menu_overlay_add_option): shown under one extra
+ * menu and persisted in smk_config.ini next to the built-in settings. */
+#define MAX_GAME_OPTIONS 32
+struct GameOption {
+    const char *menu, *label, *key, *tooltip;
+    int *value;
+    int max;           /* 1 = checkbox, >1 = 0..max choices */
+    const char *const *choices;
+};
+static GameOption g_opts[MAX_GAME_OPTIONS];
+static int g_nopts = 0;
+
 /* ================= OpenGL ES 3.0 ImGui draw backend ================= */
 
 static struct {
@@ -297,6 +309,7 @@ static void config_save(void) {
     fprintf(f, "aspect=%d\n",     g.aspect);
     fprintf(f, "wide_menus=%d\n", g.wide_menus);
     fprintf(f, "menu_hidden=%d\n", g.hidden ? 1 : 0);
+    for (int i = 0; i < g_nopts; i++) fprintf(f, "%s=%d\n", g_opts[i].key, *g_opts[i].value);
     fprintf(f, "volume=%d\n",     (int)(g.volume * 100.0f + 0.5f));
     fprintf(f, "mute=%d\n",       g.mute ? 1 : 0);
     for (int p = 0; p < 2; p++)
@@ -323,6 +336,10 @@ static void config_load(void) {
         if (line[0] == '#' || line[0] == '\n') continue;
         char keybuf[80]; int val;
         if (sscanf(line, "%79[^=]=%d", keybuf, &val) != 2) continue;
+        bool game_opt = false;
+        for (int i = 0; i < g_nopts; i++)
+            if (!strcmp(keybuf, g_opts[i].key)) { *g_opts[i].value = clampi(val, 0, g_opts[i].max); game_opt = true; }
+        if (game_opt) continue;
         if      (!strcmp(keybuf, "resolution"))  g.resolution = clampi(val, 0, 2);
         else if (!strcmp(keybuf, "display"))     g.display = clampi(val, 0, 2);
         else if (!strcmp(keybuf, "vsync"))       g.vsync = val ? 1 : 0;
@@ -622,6 +639,25 @@ static void draw_menubar(void) {
         ImGui::TextDisabled("%s", mp_status_text());
         ImGui::EndMenu();
     }
+    /* game-registered menus, in registration order */
+    for (int i = 0; i < g_nopts; i++) {
+        bool first = true;
+        for (int j = 0; j < i; j++) if (!strcmp(g_opts[j].menu, g_opts[i].menu)) first = false;
+        if (!first || !ImGui::BeginMenu(g_opts[i].menu)) continue;
+        for (int j = i; j < g_nopts; j++) {
+            GameOption &o = g_opts[j];
+            if (strcmp(o.menu, g_opts[i].menu)) continue;
+            if (o.max <= 1) {
+                menu_toggle(o.label, NULL, o.value);
+            } else if (ImGui::BeginMenu(o.label)) {
+                for (int c = 0; c <= o.max; c++)
+                    if (ImGui::MenuItem(o.choices[c], NULL, *o.value == c)) *o.value = c;
+                ImGui::EndMenu();
+            }
+            if (o.tooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", o.tooltip);
+        }
+        ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("Help")) {
         ImGui::MenuItem("About", NULL, &g.show_about);
         if (ImGui::MenuItem("Source repository")) SDL_OpenURL(SMK_REPO_URL);
@@ -703,4 +739,14 @@ extern "C" int menu_overlay_key_for_button(int player, int idx) {
 extern "C" int menu_overlay_pad_button_for_button(int player, int idx) {
     if (player < 1 || player > 2 || idx < 0 || idx >= SMK_BTN_COUNT) return -1;
     return g.pad[player - 1][idx];
+}
+
+extern "C" void menu_overlay_add_option(const char *menu, const char *label, const char *key,
+                                        int *value, int max, const char *const *choices,
+                                        const char *tooltip) {
+    if (g_nopts >= MAX_GAME_OPTIONS || !value) return;
+    GameOption &o = g_opts[g_nopts++];
+    o.menu = menu; o.label = label; o.key = key; o.value = value;
+    o.max = (max > 1 && choices) ? max : 1;
+    o.choices = choices; o.tooltip = tooltip;
 }

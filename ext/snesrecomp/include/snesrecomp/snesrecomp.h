@@ -142,6 +142,12 @@ void snesrecomp_dump_ppu(const char *filepath);
 void snesrecomp_dump_snapshot(const char *filepath);
 
 /*
+ * Dump the last frame's per-scanline Mode-7 state (start position + per-pixel
+ * step) as text, one line per mode-7 scanline. Camera-reconstruction debugging.
+ */
+void snesrecomp_dump_m7(const char *filepath);
+
+/*
  * Clean shutdown — frees all SNES hardware and closes SDL3.
  */
 void snesrecomp_shutdown(void);

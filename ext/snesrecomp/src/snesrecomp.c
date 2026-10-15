@@ -8,6 +8,7 @@
 #include "snesrecomp/snesrecomp.h"
 #include "snesrecomp/mp_session.h"
 #include "snesrecomp/menu_overlay.h"
+#include "m7view_internal.h"
 #include "snes.h"
 #include "ppu.h"
 #include "input.h"
@@ -24,6 +25,9 @@ static Snes *s_snes = NULL;
  * trailing memset), so the buffer must hold 480 rows even though we only show
  * 478 — a 478-row buffer overflows by 4096 bytes into adjacent statics. */
 static uint8_t s_pixel_buf[512 * 480 * 4];
+
+/* Camera reconstructed from the submitted frame's mode-7 lines. */
+static M7View s_view;
 
 /* Widescreen output (PPU extension columns, single-height rows). */
 static uint8_t s_wide_buf[(256 + 2 * PPU_WIDE_MAX) * 8 * 239];
@@ -183,6 +187,8 @@ static void apply_widescreen(void) {
 /* Hand the finished frame to the platform: the 256-wide 2x buffer, or the
  * widened single-height buffer when widescreen is on. */
 static void submit_video(void) {
+    m7view_solve(&s_view, ppu_getM7Lines(s_snes->ppu), 256 + 2 * s_snes->ppu->wideExt,
+                 s_snes->ppu->frameOverscan ? 239 : 224);
     if (s_snes->ppu->wideExt > 0) {
         int rows = ppu_putPixelsWide(s_snes->ppu, s_wide_buf);
         platform_submit_frame(s_wide_buf, (256 + 2 * s_snes->ppu->wideExt) * 2, 0, rows);
@@ -191,6 +197,10 @@ static void submit_video(void) {
         snesrecomp_active_video_rect(&rx, &ry, &rw, &rh);
         platform_submit_frame(s_pixel_buf, SNES_RENDER_WIDTH, ry, rh);
     }
+}
+
+const M7View *snesrecomp_m7_view(void) {
+    return &s_view;
 }
 
 bool snesrecomp_poll(void) {
@@ -424,6 +434,18 @@ void snesrecomp_active_video_rect(int *x, int *y, int *w, int *h) {
     } else {
         *y = 16; *h = 448;   /* 224 active NTSC lines, 2x */
     }
+}
+
+void snesrecomp_dump_m7(const char *filepath) {
+    if (!s_snes || !s_snes->ppu) return;
+    FILE *f = fopen(filepath, "w");
+    if (!f) return;
+    const PpuM7Line *l = ppu_getM7Lines(s_snes->ppu);
+    fprintf(f, "# line xflip startX startY a c\n");
+    for (int i = 0; i < 240; i++)
+        if (l[i].valid)
+            fprintf(f, "%d %d %d %d %d %d\n", i + 1, l[i].xFlip, l[i].startX, l[i].startY, l[i].a, l[i].c);
+    fclose(f);
 }
 
 void snesrecomp_trigger_vblank(void) {

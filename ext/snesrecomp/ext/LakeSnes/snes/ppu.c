@@ -81,6 +81,7 @@ Ppu* ppu_init(Snes* snes) {
   ppu->wideFrame = false;
   ppu->wideSawMode7 = false;
   memset(ppu->widePixelBuffer, 0, sizeof(ppu->widePixelBuffer));
+  memset(ppu->m7lines, 0, sizeof(ppu->m7lines));
   return ppu;
 }
 
@@ -271,6 +272,7 @@ void ppu_handleFrameStart(Ppu* ppu) {
   ppu->wideFrame = ppu->wideExt > 0 &&
     (ppu->wideMode == ppu_wideModeAlways || ppu->wideSawMode7);
   ppu->wideSawMode7 = false;
+  for(int i = 0; i < 240; i++) ppu->m7lines[i].valid = false;
 }
 
 void ppu_runLine(Ppu* ppu, int line) {
@@ -280,9 +282,19 @@ void ppu_runLine(Ppu* ppu, int line) {
   memset(ppu->objWidePixel, 0, sizeof(ppu->objWidePixel));
   if(!ppu->forcedBlank) ppu_evaluateSprites(ppu, line - 1);
   // actual line
+  PpuM7Line* m7 = &ppu->m7lines[(line - 1) % 240];
+  m7->valid = false;
   if(ppu->mode == 7) {
     ppu_calculateMode7Starts(ppu, line);
-    if(!ppu->forcedBlank) ppu->wideSawMode7 = true;
+    if(!ppu->forcedBlank) {
+      ppu->wideSawMode7 = true;
+      m7->valid = true;
+      m7->xFlip = ppu->m7xFlip;
+      m7->startX = ppu->m7startX;
+      m7->startY = ppu->m7startY;
+      m7->a = ppu->m7matrix[0];
+      m7->c = ppu->m7matrix[2];
+    }
   }
   int ext = ppu->wideFrame ? ppu->wideExt : 0;
   for(int x = -ext; x < 256 + ext; x++) {
@@ -295,6 +307,10 @@ void ppu_runLine(Ppu* ppu, int line) {
     memset(row, 0, ppu->wideExt * 8);
     memset(row + (256 + ppu->wideExt) * 8, 0, ppu->wideExt * 8);
   }
+}
+
+const PpuM7Line* ppu_getM7Lines(Ppu* ppu) {
+  return ppu->m7lines;
 }
 
 void ppu_setWidescreen(Ppu* ppu, int ext, int mode) {

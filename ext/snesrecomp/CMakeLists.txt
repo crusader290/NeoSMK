@@ -76,6 +76,8 @@ add_library(snesrecomp STATIC
     src/platform_sdl3.c
     src/gfx/gl.c
     src/gfx/renderer.c
+    src/gfx/scene3d.c
+    src/m7view.c
     src/input.c
     src/mp_session.c
     ${SNESRECOMP_MENU_SRC}

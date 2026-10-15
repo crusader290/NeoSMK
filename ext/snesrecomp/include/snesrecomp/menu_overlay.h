@@ -77,6 +77,15 @@ int menu_overlay_key_for_button(int player, int snes_btn_idx);
 /* SDL_GamepadButton bound to a SNES button, or -1. */
 int menu_overlay_pad_button_for_button(int player, int snes_btn_idx);
 
+/* ---- Game-registered options ----
+ * Adds an item to menu `menu` (created on demand, before Help) bound to
+ * `*value`, persisted in smk_config.ini as `key`. max <= 1: checkbox (0/1);
+ * max > 1: radio list of choices[0..max]. Register before snesrecomp_init so
+ * the saved value is loaded. Strings must outlive the program. */
+void menu_overlay_add_option(const char *menu, const char *label, const char *key,
+                             int *value, int max, const char *const *choices,
+                             const char *tooltip);
+
 #ifdef __cplusplus
 }
 #endif
