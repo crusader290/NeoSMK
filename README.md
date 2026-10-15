@@ -143,8 +143,6 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
   Release R on orange for a short boost.
 - **3D item boxes**, on by default. Spinning, translucent Mario Kart 64-style boxes with blob
   shadows float over the "?" panels; a box disappears once its panel is used.
-- **3D item boxes**, on by default. Spinning, translucent Mario Kart 64-style boxes with blob
-  shadows float over the "?" panels; a box disappears once its panel is used.
 
 **Debug → 3D camera markers** floats a 3D marker over every racer. It checks the camera that
 NeoSMK reconstructs from Mode 7 and that its 3D objects use.

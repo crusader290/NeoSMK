@@ -9,13 +9,13 @@ installing. **No ROM is included:** put your own US v1.0 dump
 ## v0.2.0 (latest)
 
 Built from commit `0451d5f` (SDL 3.2.30, Dear ImGui 1.91.9b). Checksums are in
-[`v0.2.0/SHA256SUMS`](v0.2.0/SHA256SUMS). Same platforms, requirements and toolchains as v0.1.0
-below.
+[`v0.2.0/SHA256SUMS`](v0.2.0/SHA256SUMS). Same platforms and toolchains as v0.1.0
+below. The bundled README repeats the "3D item boxes" bullet (fixed in the repository).
 
 | File | Platform |
 |---|---|
 | [`neosmk-linux-arm64-pi4.tar.gz`](v0.2.0/neosmk-linux-arm64-pi4.tar.gz) | Raspberry Pi 4 (and newer), 64-bit Raspberry Pi OS Bookworm or later |
-| [`neosmk-linux-x64.tar.gz`](v0.2.0/neosmk-linux-x64.tar.gz) | x86-64 Linux with glibc ≥ 2.34 |
+| [`neosmk-linux-x64.tar.gz`](v0.2.0/neosmk-linux-x64.tar.gz) | x86-64 Linux with glibc ≥ 2.35 (Debian 12, Ubuntu 22.04+, Fedora 36+) |
 | [`neosmk-windows-x64.zip`](v0.2.0/neosmk-windows-x64.zip) | Windows 10/11 x64 |
 
 **New since v0.1.0** (the first Mario Kart 64-style features; see the **NeoSMK** menu):
