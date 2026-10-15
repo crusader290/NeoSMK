@@ -1,0 +1,75 @@
+# Build artifacts
+build/
+out/
+*.exe
+*.obj
+*.o
+*.lib
+*.a
+*.dll
+*.so
+*.dylib
+
+# IDE files
+.vs/
+.vscode/
+*.suo
+*.user
+*.sln.docstates
+CMakeSettings.json
+
+# Claude Code
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Original game files (user-supplied)
+*.sfc
+*.smc
+*.srm
+*.fig
+*.swc
+firmware/
+
+# Auto-generated recompiled code
+gen/
+RecompiledFuncs/
+
+# Tool output
+tools/disasm/output/
+tools/recomp/output/
+tools/analyze/output/
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+tools/mesen/Mesen2/
+tools/mesen/Mesen.zip
+tools/mesen/*.log
+tools/mesen/*.txt
+
+# Debug/diagnostic artifacts at repo root (PPU/OAM dumps, screenshots, scratch logs)
+# Produced by SMK_DUMP_PREFIX runs and ad-hoc debugging. Anchored to root only.
+/*.bmp
+/*.log
+/*.png
+!/title.png
+!/titlewithchar.png
+!/mode7_race.png
+!/driver_select.png
+!/newtitle.png
+!/charselect.png
+!/class.png
+!/mp.png
+!/race.png
+!/race2.png
+
+# Runtime user config (written by the ImGui menu)
+smk_config.ini
+smk_state.sav
