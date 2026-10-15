@@ -13,6 +13,9 @@
 
 #include "smk_ram.h"
 
+#include <snesrecomp/m7view.h>
+#include <snesrecomp/scene3d.h>
+
 typedef struct {
     float    x, y;        /* map position (with subpixel) */
     float    vx, vy;      /* velocity, map pixels per frame */
@@ -38,6 +41,9 @@ void neo_tick(void);
 void neo_gameplay_register_options(void);
 /* Mini-turbo state for drawing sparks: stage 0 none, 1 yellow, 2 orange. */
 void neo_gameplay_spark_state(int player, int *stage, int *dir, int *boosting);
+
+/* 3D item boxes over the "?" panels (draws into the current scene hook). */
+void neo_itembox_draw(const Scene3DFrame *f, const M7View *v, float time_s);
 
 /* Install the 3D overlay hook. Call after snesrecomp_init. */
 void neo_install(void);

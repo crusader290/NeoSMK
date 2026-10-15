@@ -19,6 +19,7 @@
 
 /* options (persisted in smk_config.ini) */
 static int s_markers = 0;
+static int s_itemboxes = 1;
 
 /* per-character marker colours: Mario, Luigi, Bowser, Peach, DK Jr, Koopa,
  * Toad, Yoshi (SMK's character order, id * 2 in the racer record) */
@@ -126,12 +127,18 @@ static void neo_scene(const Scene3DFrame *f, void *user) {
     NeoWorld w;
     neo_world_read(&w);
     if (!w.in_race) return;
+    static uint32_t frames = 0;
+    frames++;
+    if (s_itemboxes) neo_itembox_draw(f, v, frames / 60.0f);
     draw_player_fx(f, v, &w);
     if (s_markers) draw_markers(f, v, &w);
 }
 
 void neo_register_options(void) {
     neo_gameplay_register_options();
+    menu_overlay_add_option("NeoSMK", "3D item boxes", "neo_itemboxes", &s_itemboxes, 1, NULL,
+                            "Spinning Mario Kart 64-style boxes over the \"?\" panels\n"
+                            "(visual only; a box disappears once its panel is used).");
     menu_overlay_add_option("Debug", "3D camera markers", "neo_debug_markers", &s_markers,
                             1, NULL,
                             "Float a 3D marker over every racer using the camera\n"

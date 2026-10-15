@@ -201,6 +201,25 @@ Scene3DMesh *scene3d_mesh_cube(float r, float g, float b) {
     return scene3d_mesh_create(v, nv, ix, ni);
 }
 
+Scene3DMesh *scene3d_mesh_box(const float face_rgb[6][3]) {
+    float v[24 * 9];
+    uint16_t ix[36];
+    int nv = 0, ni = 0;
+    const float h = 0.5f;
+    const float faces[6][4][3] = {
+        { {-h,-h, h}, { h,-h, h}, { h, h, h}, {-h, h, h} },
+        { {-h, h,-h}, { h, h,-h}, { h,-h,-h}, {-h,-h,-h} },
+        { { h,-h,-h}, { h, h,-h}, { h, h, h}, { h,-h, h} },
+        { {-h, h,-h}, {-h,-h,-h}, {-h,-h, h}, {-h, h, h} },
+        { { h, h,-h}, {-h, h,-h}, {-h, h, h}, { h, h, h} },
+        { {-h,-h,-h}, { h,-h,-h}, { h,-h, h}, {-h,-h, h} },
+    };
+    const float normals[6][3] = { {0,0,1}, {0,0,-1}, {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0} };
+    for (int f = 0; f < 6; f++)
+        quad(v, &nv, ix, &ni, faces[f], normals[f], face_rgb[f][0], face_rgb[f][1], face_rgb[f][2]);
+    return scene3d_mesh_create(v, nv, ix, ni);
+}
+
 Scene3DMesh *scene3d_mesh_pyramid(float r, float g, float b) {
     /* inverted square pyramid: tip at the origin, 1 x 1 cap at Z = 1 */
     const float h = 0.5f;
@@ -294,5 +313,16 @@ void scene3d_mat_trs(float out[16], float x, float y, float z,
     out[0] = c * sx;  out[1] = s * sx;
     out[4] = -s * sy; out[5] = c * sy;
     out[10] = sz;
+    out[12] = x; out[13] = y; out[14] = z; out[15] = 1.0f;
+}
+
+void scene3d_mat_spin(float out[16], float x, float y, float z,
+                      float yaw_rad, float tilt_rad, float scale) {
+    float cy = cosf(yaw_rad), sy = sinf(yaw_rad);
+    float ct = cosf(tilt_rad), st = sinf(tilt_rad);
+    /* columns of Rz * Rx, scaled */
+    out[0] = cy * scale;       out[1] = sy * scale;       out[2] = 0.0f;        out[3] = 0.0f;
+    out[4] = -sy * ct * scale; out[5] = cy * ct * scale;  out[6] = st * scale;  out[7] = 0.0f;
+    out[8] = sy * st * scale;  out[9] = -cy * st * scale; out[10] = ct * scale; out[11] = 0.0f;
     out[12] = x; out[13] = y; out[14] = z; out[15] = 1.0f;
 }

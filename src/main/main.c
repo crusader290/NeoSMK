@@ -456,6 +456,22 @@ int main(int argc, char *argv[]) {
                        bus_wram_read16(0x80));
             }
 
+            /* SMK_POKE16="frame:addr:value,..." (hex addr/value): write WRAM after
+             * logic frame N. Reverse-engineering / test setups only — it changes
+             * emulated state like a cheat code would. */
+            {
+                const char *pk = getenv("SMK_POKE16");
+                if (pk) {
+                    char buf[1024];
+                    strncpy(buf, pk, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0;
+                    for (char *t = strtok(buf, ","); t; t = strtok(NULL, ",")) {
+                        int fr = 0; unsigned addr = 0, val = 0;
+                        if (sscanf(t, "%d:%x:%x", &fr, &addr, &val) == 3 && fr == frame_no)
+                            bus_wram_write16(addr, (uint16_t)val);
+                    }
+                }
+            }
+
             /* SMK_SHOT_AT="frame:file.bmp,...": screenshot the frame presented
              * after logic frame N (visual regression checks). */
             {

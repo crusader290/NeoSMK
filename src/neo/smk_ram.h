@@ -13,6 +13,12 @@
  * $08 = class/cup select. */
 #define SMK_RAM_GAME_STATE      0x0036
 
+/* Mode-7 tile behaviour table (256 bytes, one per tile id, set per track). */
+#define SMK_RAM_TILE_BEHAVIOUR  0x0B00
+#define SMK_TILE_ITEM_PANEL     0x14   /* "?" item panel ($C4-$C7 on Mario Circuit) */
+#define SMK_TILE_COIN           0x1A   /* track coin ($FE) */
+#define SMK_TILE_ROAD           0x40   /* plain road; used panels become this */
+
 /* Racer records: 8 x $100 bytes. Record 0 is player 1. */
 #define SMK_RAM_RACERS          0x1000
 #define SMK_RACER_STRIDE        0x0100

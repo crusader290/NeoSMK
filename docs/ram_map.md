@@ -36,6 +36,19 @@ races in this emulator unless marked unconfirmed.
 | +$C1 | 8 | current lap (player 1) | from the disassembly; **unconfirmed** |
 | +$EA | 16 | speed, \|velocity\| in 8.8 | equals the velocity magnitude; ~$2A0–$2CE top speed at 50cc. Writing a higher value boosts: the game bleeds it back down (≈$10/frame), like a mushroom |
 
+## Track tiles
+
+| Address | Meaning |
+|---|---|
+| VRAM words $0000–$3FFF, low byte | Mode-7 tilemap, 128 × 128 tiles of 8 × 8 px |
+| WRAM $0B00–$0BFF | tile behaviour table, one byte per tile id (per track) |
+
+Behaviour codes seen on Mario Circuit 1: $40 road (7914 cells), $54, $26, $80, **$14 item
+panel** (tiles $C4–$C7 as 2 × 2 groups: top-left, top-right, bottom-left, bottom-right; 12
+panels), **$1A coin** (tile $FE, 35 coins). Driving over a panel (with no item held) rewrites
+its four tiles to $D4–$D7 with behaviour $40; with an item held the panel stays.
+CPU racers never consume panels.
+
 ## Game state
 
 | Address | Meaning |
@@ -52,5 +65,5 @@ The camera heading lags the kart's heading slightly while turning (the game smoo
 
 ## Still to find
 
-- item slot and roulette state; item-box positions and their "taken" timers
+- item slot and roulette state
 - object table for shells, bananas and other track objects

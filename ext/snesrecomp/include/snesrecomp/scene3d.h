@@ -41,6 +41,9 @@ void scene3d_mesh_destroy(Scene3DMesh *m);
 /* Built-in shapes (unit size, centred on the origin in XY, base at Z=0). */
 Scene3DMesh *scene3d_mesh_cube(float r, float g, float b);     /* 1 x 1 x 1 */
 Scene3DMesh *scene3d_mesh_pyramid(float r, float g, float b);  /* point down: marker */
+/* Cube centred on the origin (-0.5..0.5 on every axis), one colour per face:
+ * +Z, -Z, +X, -X, +Y, -Y. */
+Scene3DMesh *scene3d_mesh_box(const float face_rgb[6][3]);
 
 /* Restrict drawing to scanlines line0..line1 of the picture (clip a band). */
 void scene3d_clip_lines(const Scene3DFrame *f, int line0, int line1);
@@ -55,6 +58,9 @@ void scene3d_end(void);
 /* Matrix helpers. */
 void scene3d_mat_trs(float out[16], float x, float y, float z,
                      float yaw_rad, float sx, float sy, float sz);
+/* T(x,y,z) * Rz(yaw) * Rx(tilt) * uniform scale. */
+void scene3d_mat_spin(float out[16], float x, float y, float z,
+                      float yaw_rad, float tilt_rad, float scale);
 
 #ifdef __cplusplus
 }

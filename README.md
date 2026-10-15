@@ -141,6 +141,8 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
 - **MK64 mini-turbo**, on by default. Power-slide (hop with R while steering), then flick
   the D-pad toward the *outside* of the turn: one flick gives yellow sparks, three give orange.
   Release R on orange for a short boost.
+- **3D item boxes**, on by default. Spinning, translucent Mario Kart 64-style boxes with blob
+  shadows float over the "?" panels; a box disappears once its panel is used.
 
 **Debug → 3D camera markers** floats a 3D marker over every racer. It checks the camera that
 NeoSMK reconstructs from Mode 7 and that its 3D objects use.
@@ -159,6 +161,7 @@ players need the same NeoSMK settings.
 | `SMK_SCRIPT=…`, `SMK_MAX_FRAMES=N` | scripted input (`frame:BTN`, `a-b:BTN`) and auto-exit |
 | `SMK_SNAPSHOT_PREFIX`, `SMK_SNAPSHOT_EVERY` | WRAM/VRAM/CGRAM snapshots for diffing |
 | `SMK_SHOT_AT="frame:file.bmp,…"` | screenshot the frame presented after logic frame N |
+| `SMK_POKE16="frame:addr:value,…"` | write a WRAM word (hex) after logic frame N, for test setups like a cheat code |
 | `SMK_DUMP_M7=<prefix>` | per-scanline Mode-7 state every 60 frames (camera debugging) |
 | `SMK_SHELLS=1`, `SMK_RECOMP=1`, … | upstream recompilation development modes (see `docs/`) |
 

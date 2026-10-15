@@ -5,7 +5,8 @@ and widescreen. This document scopes phase 2: bringing over **Mario Kart 64 game
 systems** and **replacing selected sprites with real 3D objects**, within the platform targets
 (Raspberry Pi 4, GLES 3.0, 640×480-class internal resolution, 60 FPS, < 512 MB).
 
-Status: **B1 camera reconstruction** and the **mini-turbo** are implemented (see below);
+Status: **B1 camera reconstruction**, the **mini-turbo** and **3D item boxes** are
+implemented (see below);
 the rest is still a plan.
 
 ## Ground rules
@@ -68,7 +69,9 @@ The SNES layers are still composited for the sky/scenery band, sprites and HUD.
 
 Order by visual payoff vs risk:
 
-1. **Item boxes** (static positions; MK64-style rotating "?" cubes): low poly, 64–128 px texture
+1. **Item boxes** (MK64-style rotating "?" cubes): **done** (`src/neo/neo_itembox.c`). SMK's
+   boxes are 2 × 2 "?" panels in the Mode-7 tilemap (behaviour $14). Each frame NeoSMK finds them
+   and floats a translucent rainbow cube with a blob shadow over each; a used panel loses its cube
 2. **Pipes / track obstacles** (static): instanced meshes
 3. **Shells, bananas** (dynamic but simple)
 4. **Karts** (8 drivers × 12 rotation sprites today). A 300–800-triangle kart with a 128–256 px
