@@ -7,6 +7,10 @@
 
 typedef struct Ppu Ppu;
 
+// widescreen: max extra columns per side (64 → 384 wide, past 16:9)
+#define PPU_WIDE_MAX 64
+enum { ppu_wideModeMode7 = 0, ppu_wideModeAlways = 1 };
+
 #include "snes.h"
 #include "statehandler.h"
 
@@ -128,6 +132,18 @@ struct Ppu {
   // times 2 for even and odd frame
   uint8_t pixelBuffer[512 * 4 * 239 * 2];
   uint8_t pixelOutputFormat;
+  // widescreen extension (NeoSMK). Presentation only: never serialized and
+  // never visible to the emulated CPU (sprite range/time-over flags are
+  // still computed over the 256-pixel hardware line).
+  int wideExt;          // extra columns rendered left and right (0 = off)
+  int wideMode;         // ppu_wideModeMode7 / ppu_wideModeAlways
+  bool wideFrame;       // this frame renders the extension columns
+  bool wideSawMode7;    // a mode-7 line was rendered this frame
+  uint8_t objWidePixel[256 + 2 * PPU_WIDE_MAX];     // line buffers, x + PPU_WIDE_MAX
+  uint8_t objWidePriority[256 + 2 * PPU_WIDE_MAX];
+  // (256 + 2 * wideExt) pixels per row, 8 bytes each (sub + main, like
+  // pixelBuffer), 239 rows per field, both fields
+  uint8_t widePixelBuffer[(256 + 2 * PPU_WIDE_MAX) * 8 * 239 * 2];
 };
 
 enum { ppu_pixelOutputFormatXBGR = 0, ppu_pixelOutputFormatBGRX = 1 };
@@ -144,5 +160,12 @@ uint8_t ppu_read(Ppu* ppu, uint8_t adr);
 void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val);
 void ppu_putPixels(Ppu* ppu, uint8_t* pixels);
 void ppu_setPixelOutputFormat(Ppu* ppu, int pixelOutputFormat);
+// widescreen: render `ext` extra columns per side (0..PPU_WIDE_MAX, 0 = off).
+// ppu_wideModeMode7 widens only frames that use mode 7 (the previous frame's
+// result decides), others keep black extension columns.
+void ppu_setWidescreen(Ppu* ppu, int ext, int mode);
+// copy the last frame as (256 + 2 * ext) * 2 columns x 224/239 rows (no line
+// doubling), XBGR/BGRX like ppu_putPixels; returns the number of rows
+int ppu_putPixelsWide(Ppu* ppu, uint8_t* pixels);
 
 #endif

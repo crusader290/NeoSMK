@@ -76,6 +76,11 @@ Ppu* ppu_init(Snes* snes) {
   Ppu* ppu = malloc(sizeof(Ppu));
   ppu->snes = snes;
   ppu_setPixelOutputFormat(ppu, ppu_pixelOutputFormatBGRX);
+  ppu->wideExt = 0;
+  ppu->wideMode = ppu_wideModeMode7;
+  ppu->wideFrame = false;
+  ppu->wideSawMode7 = false;
+  memset(ppu->widePixelBuffer, 0, sizeof(ppu->widePixelBuffer));
   return ppu;
 }
 
@@ -179,6 +184,9 @@ void ppu_reset(Ppu* ppu) {
   ppu->ppu1openBus = 0;
   ppu->ppu2openBus = 0;
   memset(ppu->pixelBuffer, 0, sizeof(ppu->pixelBuffer));
+  memset(ppu->widePixelBuffer, 0, sizeof(ppu->widePixelBuffer));
+  ppu->wideFrame = false;
+  ppu->wideSawMode7 = false;
 }
 
 void ppu_handleState(Ppu* ppu, StateHandler* sh) {
@@ -259,18 +267,55 @@ void ppu_handleFrameStart(Ppu* ppu) {
   ppu->rangeOver = false;
   ppu->timeOver = false;
   ppu->evenFrame = !ppu->evenFrame;
+  // widescreen: decide from the previous frame whether this one is widened
+  ppu->wideFrame = ppu->wideExt > 0 &&
+    (ppu->wideMode == ppu_wideModeAlways || ppu->wideSawMode7);
+  ppu->wideSawMode7 = false;
 }
 
 void ppu_runLine(Ppu* ppu, int line) {
   // called for lines 1-224/239
   // evaluate sprites
   memset(ppu->objPixelBuffer, 0, sizeof(ppu->objPixelBuffer));
+  memset(ppu->objWidePixel, 0, sizeof(ppu->objWidePixel));
   if(!ppu->forcedBlank) ppu_evaluateSprites(ppu, line - 1);
   // actual line
-  if(ppu->mode == 7) ppu_calculateMode7Starts(ppu, line);
-  for(int x = 0; x < 256; x++) {
+  if(ppu->mode == 7) {
+    ppu_calculateMode7Starts(ppu, line);
+    if(!ppu->forcedBlank) ppu->wideSawMode7 = true;
+  }
+  int ext = ppu->wideFrame ? ppu->wideExt : 0;
+  for(int x = -ext; x < 256 + ext; x++) {
     ppu_handlePixel(ppu, x, line);
   }
+  if(ppu->wideExt > 0 && !ppu->wideFrame) {
+    // widescreen on but this frame isn't widened: black extension columns
+    int stride = (256 + 2 * ppu->wideExt) * 8;
+    uint8_t* row = &ppu->widePixelBuffer[((line - 1) + (ppu->evenFrame ? 0 : 239)) * stride];
+    memset(row, 0, ppu->wideExt * 8);
+    memset(row + (256 + ppu->wideExt) * 8, 0, ppu->wideExt * 8);
+  }
+}
+
+void ppu_setWidescreen(Ppu* ppu, int ext, int mode) {
+  if(ext < 0) ext = 0;
+  if(ext > PPU_WIDE_MAX) ext = PPU_WIDE_MAX;
+  if(ext != ppu->wideExt) {
+    memset(ppu->widePixelBuffer, 0, sizeof(ppu->widePixelBuffer));
+    ppu->wideFrame = false;
+  }
+  ppu->wideExt = ext;
+  ppu->wideMode = mode;
+}
+
+int ppu_putPixelsWide(Ppu* ppu, uint8_t* pixels) {
+  int stride = (256 + 2 * ppu->wideExt) * 8;
+  int rows = ppu->frameOverscan ? 239 : 224;
+  for(int y = 0; y < rows; y++) {
+    int src = y + (ppu->evenFrame ? 0 : 239);
+    memcpy(pixels + y * stride, &ppu->widePixelBuffer[src * stride], stride);
+  }
+  return rows;
 }
 
 void ppu_setPixelOutputFormat(Ppu* ppu, int pixelOutputFormat) {
@@ -331,12 +376,25 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
     }
   }
   int row = (y - 1) + (ppu->evenFrame ? 0 : 239);
-  ppu->pixelBuffer[row * 2048 + x * 8 + 0 + ppu->pixelOutputFormat] = ((b2 << 3) | (b2 >> 2)) * ppu->brightness / 15;
-  ppu->pixelBuffer[row * 2048 + x * 8 + 1 + ppu->pixelOutputFormat] = ((g2 << 3) | (g2 >> 2)) * ppu->brightness / 15;
-  ppu->pixelBuffer[row * 2048 + x * 8 + 2 + ppu->pixelOutputFormat] = ((r2 << 3) | (r2 >> 2)) * ppu->brightness / 15;
-  ppu->pixelBuffer[row * 2048 + x * 8 + 4 + ppu->pixelOutputFormat] = ((b << 3) | (b >> 2)) * ppu->brightness / 15;
-  ppu->pixelBuffer[row * 2048 + x * 8 + 5 + ppu->pixelOutputFormat] = ((g << 3) | (g >> 2)) * ppu->brightness / 15;
-  ppu->pixelBuffer[row * 2048 + x * 8 + 6 + ppu->pixelOutputFormat] = ((r << 3) | (r >> 2)) * ppu->brightness / 15;
+  uint8_t px[6] = {
+    ((b2 << 3) | (b2 >> 2)) * ppu->brightness / 15,
+    ((g2 << 3) | (g2 >> 2)) * ppu->brightness / 15,
+    ((r2 << 3) | (r2 >> 2)) * ppu->brightness / 15,
+    ((b << 3) | (b >> 2)) * ppu->brightness / 15,
+    ((g << 3) | (g >> 2)) * ppu->brightness / 15,
+    ((r << 3) | (r >> 2)) * ppu->brightness / 15,
+  };
+  if(x >= 0 && x < 256) {
+    uint8_t* dst = &ppu->pixelBuffer[row * 2048 + x * 8 + ppu->pixelOutputFormat];
+    dst[0] = px[0]; dst[1] = px[1]; dst[2] = px[2];
+    dst[4] = px[3]; dst[5] = px[4]; dst[6] = px[5];
+  }
+  if(ppu->wideExt > 0) {
+    int stride = (256 + 2 * ppu->wideExt) * 8;
+    uint8_t* dst = &ppu->widePixelBuffer[row * stride + (x + ppu->wideExt) * 8 + ppu->pixelOutputFormat];
+    dst[0] = px[0]; dst[1] = px[1]; dst[2] = px[2];
+    dst[4] = px[3]; dst[5] = px[4]; dst[6] = px[5];
+  }
 }
 
 static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b) {
@@ -365,7 +423,7 @@ static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b
         int lx = x;
         int ly = y;
         if(ppu->bgLayer[curLayer].mosaicEnabled && ppu->mosaicSize > 1) {
-          lx -= lx % ppu->mosaicSize;
+          lx -= ((lx % ppu->mosaicSize) + ppu->mosaicSize) % ppu->mosaicSize; // x < 0 in widescreen
           ly -= (ly - ppu->mosaicStartLine) % ppu->mosaicSize;
         }
         if(ppu->mode == 7) {
@@ -392,7 +450,7 @@ static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b
       } else {
         // get a pixel from the sprite buffer
         pixel = 0;
-        if(ppu->objPriorityBuffer[x] == curPriority) pixel = ppu->objPixelBuffer[x];
+        if(ppu->objWidePriority[x + PPU_WIDE_MAX] == curPriority) pixel = ppu->objWidePixel[x + PPU_WIDE_MAX];
       }
     }
     if(pixel > 0) {
@@ -543,7 +601,7 @@ static void ppu_calculateMode7Starts(Ppu* ppu, int y) {
 }
 
 static int ppu_getPixelForMode7(Ppu* ppu, int x, int layer, bool priority) {
-  uint8_t rx = ppu->m7xFlip ? 255 - x : x;
+  int rx = ppu->m7xFlip ? 255 - x : x; // int: x runs past 0..255 in widescreen
   int xPos = (ppu->m7startX + ppu->m7matrix[0] * rx) >> 8;
   int yPos = (ppu->m7startY + ppu->m7matrix[2] * rx) >> 8;
   bool outsideMap = xPos < 0 || xPos >= 1024 || yPos < 0 || yPos >= 1024;
@@ -563,6 +621,9 @@ static bool ppu_getWindowState(Ppu* ppu, int layer, int x) {
   if(!ppu->windowLayer[layer].window1enabled && !ppu->windowLayer[layer].window2enabled) {
     return false;
   }
+  // widescreen extension columns take the window state of the nearest edge
+  if(x < 0) x = 0;
+  if(x > 255) x = 255;
   if(ppu->windowLayer[layer].window1enabled && !ppu->windowLayer[layer].window2enabled) {
     bool test = x >= ppu->window1left && x <= ppu->window1right;
     return ppu->windowLayer[layer].window1inversed ? !test : test;
@@ -586,10 +647,16 @@ static bool ppu_getWindowState(Ppu* ppu, int layer, int x) {
 
 static void ppu_evaluateSprites(Ppu* ppu, int line) {
   // TODO: rectangular sprites, wierdness with sprites at -256
+  // Widescreen: sprites/slivers visible only in the extension columns are
+  // drawn too, but never count toward the 32-sprite / 34-sliver hardware
+  // limits, so rangeOver/timeOver (CPU-visible) match the 256-wide hardware.
+  int ext = ppu->wideFrame ? ppu->wideExt : 0;
   uint8_t index = ppu->objPriority ? (ppu->oamAdr & 0xfe) : 0;
-  int spritesFound = 0;
+  int spritesFound = 0; // hardware in-range sprites
+  int wideOnly = 0;     // sprites visible only in the left extension
+  int listed = 0;
   int tilesFound = 0;
-  uint8_t foundSprites[32] = {};
+  uint8_t foundSprites[64] = {};
   // iterate over oam to find sprites in range
   for(int i = 0; i < 128; i++) {
     uint8_t y = ppu->oam[index] >> 8;
@@ -611,13 +678,16 @@ static void ppu_evaluateSprites(Ppu* ppu, int line) {
           spritesFound = 32;
           break;
         }
-        foundSprites[spritesFound - 1] = index;
+        foundSprites[listed++] = index;
+      } else if(x > -spriteSize - ext && wideOnly < 32) {
+        wideOnly++;
+        foundSprites[listed++] = index;
       }
     }
     index += 2;
   }
   // iterate over found sprites backwards to fetch max 34 tile slivers
-  for(int i = spritesFound; i > 0; i--) {
+  for(int i = listed; i > 0; i--) {
     index = foundSprites[i - 1];
     uint8_t y = ppu->oam[index] >> 8;
     uint8_t row = line - y;
@@ -625,48 +695,52 @@ static void ppu_evaluateSprites(Ppu* ppu, int line) {
     int x = ppu->oam[index] & 0xff;
     x |= ((ppu->highOam[index >> 3] >> (index & 7)) & 1) << 8;
     if(x > 255) x -= 512;
-    if(x > -spriteSize) {
-      // update row according to obj-interlace
-      if(ppu->objInterlace) row = row * 2 + (ppu->evenFrame ? 0 : 1);
-      // get some data for the sprite and y-flip row if needed
-      int tile = ppu->oam[index + 1] & 0xff;
-      int palette = (ppu->oam[index + 1] & 0xe00) >> 9;
-      bool hFlipped = ppu->oam[index + 1] & 0x4000;
-      if(ppu->oam[index + 1] & 0x8000) row = spriteSize - 1 - row;
-      // fetch all tiles in x-range
-      for(int col = 0; col < spriteSize; col += 8) {
-        if(col + x > -8 && col + x < 256) {
+    bool hwSprite = x > -spriteSize;
+    // update row according to obj-interlace
+    if(ppu->objInterlace) row = row * 2 + (ppu->evenFrame ? 0 : 1);
+    // get some data for the sprite and y-flip row if needed
+    int tile = ppu->oam[index + 1] & 0xff;
+    int palette = (ppu->oam[index + 1] & 0xe00) >> 9;
+    bool hFlipped = ppu->oam[index + 1] & 0x4000;
+    if(ppu->oam[index + 1] & 0x8000) row = spriteSize - 1 - row;
+    // fetch all tiles in x-range
+    for(int col = 0; col < spriteSize; col += 8) {
+      if(col + x > -8 - ext && col + x < 256 + ext) {
+        if(hwSprite && col + x > -8 && col + x < 256) {
           // break if we found > 34 8*1 slivers already
           tilesFound++;
           if(tilesFound > 34) {
             ppu->timeOver = true;
             break;
           }
-          // figure out which tile this uses, looping within 16x16 pages, and get it's data
-          int usedCol = hFlipped ? spriteSize - 1 - col : col;
-          uint8_t usedTile = (((tile >> 4) + (row / 8)) << 4) | (((tile & 0xf) + (usedCol / 8)) & 0xf);
-          uint16_t objAdr = (ppu->oam[index + 1] & 0x100) ? ppu->objTileAdr2 : ppu->objTileAdr1;
-          uint16_t plane1 = ppu->vram[(objAdr + usedTile * 16 + (row & 0x7)) & 0x7fff];
-          uint16_t plane2 = ppu->vram[(objAdr + usedTile * 16 + 8 + (row & 0x7)) & 0x7fff];
-          // go over each pixel
-          for(int px = 0; px < 8; px++) {
-            int shift = hFlipped ? px : 7 - px;
-            int pixel = (plane1 >> shift) & 1;
-            pixel |= ((plane1 >> (8 + shift)) & 1) << 1;
-            pixel |= ((plane2 >> shift) & 1) << 2;
-            pixel |= ((plane2 >> (8 + shift)) & 1) << 3;
-            // draw it in the buffer if there is a pixel here
-            int screenCol = col + x + px;
-            if(pixel > 0 && screenCol >= 0 && screenCol < 256) {
-              ppu->objPixelBuffer[screenCol] = 0x80 + 16 * palette + pixel;
-              ppu->objPriorityBuffer[screenCol] = (ppu->oam[index + 1] & 0x3000) >> 12;
-            }
+        }
+        // figure out which tile this uses, looping within 16x16 pages, and get it's data
+        int usedCol = hFlipped ? spriteSize - 1 - col : col;
+        uint8_t usedTile = (((tile >> 4) + (row / 8)) << 4) | (((tile & 0xf) + (usedCol / 8)) & 0xf);
+        uint16_t objAdr = (ppu->oam[index + 1] & 0x100) ? ppu->objTileAdr2 : ppu->objTileAdr1;
+        uint16_t plane1 = ppu->vram[(objAdr + usedTile * 16 + (row & 0x7)) & 0x7fff];
+        uint16_t plane2 = ppu->vram[(objAdr + usedTile * 16 + 8 + (row & 0x7)) & 0x7fff];
+        // go over each pixel
+        for(int px = 0; px < 8; px++) {
+          int shift = hFlipped ? px : 7 - px;
+          int pixel = (plane1 >> shift) & 1;
+          pixel |= ((plane1 >> (8 + shift)) & 1) << 1;
+          pixel |= ((plane2 >> shift) & 1) << 2;
+          pixel |= ((plane2 >> (8 + shift)) & 1) << 3;
+          // draw it in the buffer if there is a pixel here
+          int screenCol = col + x + px;
+          if(pixel > 0 && screenCol >= -ext && screenCol < 256 + ext) {
+            ppu->objWidePixel[screenCol + PPU_WIDE_MAX] = 0x80 + 16 * palette + pixel;
+            ppu->objWidePriority[screenCol + PPU_WIDE_MAX] = (ppu->oam[index + 1] & 0x3000) >> 12;
           }
         }
       }
-      if(tilesFound > 34) break; // break out of sprite-loop if max tiles found
     }
+    if(tilesFound > 34) break; // break out of sprite-loop if max tiles found
   }
+  // keep the (serialized) 256-wide line buffers identical to upstream
+  memcpy(ppu->objPixelBuffer, &ppu->objWidePixel[PPU_WIDE_MAX], 256);
+  memcpy(ppu->objPriorityBuffer, &ppu->objWidePriority[PPU_WIDE_MAX], 256);
 }
 
 static uint16_t ppu_getVramRemap(Ppu* ppu) {

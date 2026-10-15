@@ -8,46 +8,53 @@
 #include "snesrecomp/input.h"
 #include "snesrecomp/menu_overlay.h"
 #include "snes.h"
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <string.h>
 
-/* Up to two opened game controllers (Xbox-style), assigned to players 1 and 2.
- * Empty slots are filled lazily each frame so hotplugged pads Just Work. */
-static SDL_GameController *s_gc[2] = { NULL, NULL };
+/* Up to two opened gamepads (Xbox-style), assigned to players 1 and 2.
+ * Empty slots are filled lazily each frame so hotplugged pads Just Work;
+ * unplugged pads are closed so their slot can be refilled. */
+static SDL_Gamepad *s_gc[2] = { NULL, NULL };
 #define GC_AXIS_DEADZONE 12000
 
 static void ensure_gamepads(void) {
     for (int slot = 0; slot < 2; slot++) {
+        if (s_gc[slot] && !SDL_GamepadConnected(s_gc[slot])) {
+            SDL_CloseGamepad(s_gc[slot]);
+            s_gc[slot] = NULL;
+        }
+    }
+    if (s_gc[0] && s_gc[1]) return;
+    int count = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&count);
+    if (!ids) return;
+    for (int slot = 0; slot < 2; slot++) {
         if (s_gc[slot]) continue;
-        for (int i = 0; i < SDL_NumJoysticks(); i++) {
-            if (!SDL_IsGameController(i)) continue;
-            SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(i);
+        for (int i = 0; i < count; i++) {
             int held = 0;
-            for (int s2 = 0; s2 < 2; s2++) {
-                if (!s_gc[s2]) continue;
-                SDL_Joystick *j = SDL_GameControllerGetJoystick(s_gc[s2]);
-                if (j && SDL_JoystickInstanceID(j) == id) { held = 1; break; }
-            }
+            for (int s2 = 0; s2 < 2; s2++)
+                if (s_gc[s2] && SDL_GetGamepadID(s_gc[s2]) == ids[i]) { held = 1; break; }
             if (held) continue;
-            s_gc[slot] = SDL_GameControllerOpen(i);
+            s_gc[slot] = SDL_OpenGamepad(ids[i]);
             if (s_gc[slot]) break;
         }
     }
+    SDL_free(ids);
 }
 
 /* True if `player` (1/2) currently presses SNES button `btn` via its bound key
  * or gamepad button, plus left-stick-as-dpad for the directions. */
-static bool button_pressed(int player, int btn, const uint8_t *keys) {
+static bool button_pressed(int player, int btn, const bool *keys, int nkeys) {
     int sc = menu_overlay_key_for_button(player, btn);
-    if (sc >= 0 && keys[sc]) return true;
+    if (sc >= 0 && sc < nkeys && keys[sc]) return true;
 
-    SDL_GameController *gc = s_gc[player - 1];
+    SDL_Gamepad *gc = s_gc[player - 1];
     if (gc) {
         int pb = menu_overlay_pad_button_for_button(player, btn);
-        if (pb >= 0 && SDL_GameControllerGetButton(gc, (SDL_GameControllerButton)pb)) return true;
+        if (pb >= 0 && SDL_GetGamepadButton(gc, (SDL_GamepadButton)pb)) return true;
         /* Left analog stick also drives the d-pad directions. */
-        int ax = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX);
-        int ay = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY);
+        int ax = SDL_GetGamepadAxis(gc, SDL_GAMEPAD_AXIS_LEFTX);
+        int ay = SDL_GetGamepadAxis(gc, SDL_GAMEPAD_AXIS_LEFTY);
         if (btn == SNES_BTN_IDX_LEFT  && ax < -GC_AXIS_DEADZONE) return true;
         if (btn == SNES_BTN_IDX_RIGHT && ax >  GC_AXIS_DEADZONE) return true;
         if (btn == SNES_BTN_IDX_UP    && ay < -GC_AXIS_DEADZONE) return true;
@@ -169,8 +176,9 @@ void recomp_input_update(void) {
     Snes *snes = snesrecomp_get_snes();
     if (!snes) return;
 
-    const uint8_t *keys = SDL_GetKeyboardState(NULL);
-    uint32_t mouse_buttons = SDL_GetMouseState(NULL, NULL);
+    int nkeys = 0;
+    const bool *keys = SDL_GetKeyboardState(&nkeys);
+    SDL_MouseButtonFlags mouse_buttons = SDL_GetMouseState(NULL, NULL);
 
     /* --- Port 1 --- */
     if (s_device_type[0] == SNES_INPUT_MOUSE) {
@@ -203,7 +211,7 @@ void recomp_input_update(void) {
         ensure_gamepads();
         int block = menu_overlay_is_active();
         for (int btn = 0; btn < 12; btn++)
-            snes_setButtonState(snes, 1, btn, block ? false : button_pressed(1, btn, keys));
+            snes_setButtonState(snes, 1, btn, block ? false : button_pressed(1, btn, keys, nkeys));
     }
 
     /* --- Port 2 --- */
@@ -215,7 +223,7 @@ void recomp_input_update(void) {
         ensure_gamepads();
         int block = menu_overlay_is_active();
         for (int btn = 0; btn < 12; btn++)
-            snes_setButtonState(snes, 2, btn, block ? false : button_pressed(2, btn, keys));
+            snes_setButtonState(snes, 2, btn, block ? false : button_pressed(2, btn, keys, nkeys));
     }
 }
 

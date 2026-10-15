@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(snesrecomp C CXX)
 
 set(CMAKE_C_STANDARD 17)
@@ -10,10 +10,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(SNESRECOMP_BUILD_EXAMPLES "Build example programs" ON)
 option(SNESRECOMP_MENU "Build the Dear ImGui menu overlay (File/Graphics/Sound/Controller/Help)" ON)
 
-# SDL2
-find_package(SDL2 REQUIRED)
+# SDL3 — the parent project provides SDL3::SDL3 (see cmake/SDL3.cmake);
+# standalone builds use an installed SDL3.
+if(NOT TARGET SDL3::SDL3)
+    find_package(SDL3 3.2 REQUIRED CONFIG)
+endif()
+
+if(MSVC)
+    set(SNESRECOMP_NOWARN /W0)
+else()
+    set(SNESRECOMP_NOWARN -w)
+endif()
 
 # --- Dear ImGui (static lib) — only when the menu overlay is enabled ---
+# Core + SDL3 platform backend; drawing goes through our own GL ES 3.0
+# backend in menu_overlay.cpp (shares the renderer's GL loader).
 if(SNESRECOMP_MENU)
     set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
     add_library(imgui STATIC
@@ -21,16 +32,11 @@ if(SNESRECOMP_MENU)
         ${IMGUI_DIR}/imgui_draw.cpp
         ${IMGUI_DIR}/imgui_tables.cpp
         ${IMGUI_DIR}/imgui_widgets.cpp
-        ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-        ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
     )
     target_include_directories(imgui PUBLIC ${IMGUI_DIR})
-    target_link_libraries(imgui PUBLIC SDL2::SDL2)
-    if(MSVC)
-        target_compile_options(imgui PRIVATE /W0)
-    else()
-        target_compile_options(imgui PRIVATE -w)
-    endif()
+    target_link_libraries(imgui PUBLIC SDL3::SDL3)
+    target_compile_options(imgui PRIVATE ${SNESRECOMP_NOWARN})
     set(SNESRECOMP_MENU_SRC src/menu_overlay.cpp)
 else()
     set(SNESRECOMP_MENU_SRC src/menu_overlay_stub.c)
@@ -58,11 +64,7 @@ add_library(lakesnes_hw STATIC
 )
 target_include_directories(lakesnes_hw PUBLIC ${LAKESNES_DIR})
 # Suppress warnings in third-party code
-if(MSVC)
-    target_compile_options(lakesnes_hw PRIVATE /W0)
-else()
-    target_compile_options(lakesnes_hw PRIVATE -w)
-endif()
+target_compile_options(lakesnes_hw PRIVATE ${SNESRECOMP_NOWARN})
 
 # --- snesrecomp adapter library (static lib) ---
 add_library(snesrecomp STATIC
@@ -71,21 +73,27 @@ add_library(snesrecomp STATIC
     src/bus.c
     src/func_table.c
     src/recomp_interp.c
-    src/platform_sdl.c
+    src/platform_sdl3.c
+    src/gfx/gl.c
+    src/gfx/renderer.c
     src/input.c
     src/mp_session.c
     ${SNESRECOMP_MENU_SRC}
 )
 target_include_directories(snesrecomp
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
     PRIVATE ${LAKESNES_DIR}
 )
 target_link_libraries(snesrecomp
     PUBLIC  lakesnes_hw
-    PUBLIC  SDL2::SDL2
+    PUBLIC  SDL3::SDL3
 )
 if(WIN32)
     target_link_libraries(snesrecomp PUBLIC ws2_32)   # netplay sockets (mp_session)
+endif()
+if(NOT MSVC)
+    target_link_libraries(snesrecomp PUBLIC m)
 endif()
 if(SNESRECOMP_MENU)
     target_include_directories(snesrecomp PRIVATE ${IMGUI_DIR})
@@ -95,5 +103,6 @@ endif()
 # --- Example: minimal recomp ---
 if(SNESRECOMP_BUILD_EXAMPLES)
     add_executable(snesrecomp_minimal examples/minimal/main.c)
-    target_link_libraries(snesrecomp_minimal PRIVATE snesrecomp SDL2::SDL2main)
+    target_link_libraries(snesrecomp_minimal PRIVATE snesrecomp)
+    set_target_properties(snesrecomp_minimal PROPERTIES LINKER_LANGUAGE CXX)
 endif()

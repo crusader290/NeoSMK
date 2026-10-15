@@ -2,11 +2,12 @@
  * snesrecomp core lifecycle — init, frame, shutdown.
  *
  * This is the glue that ties LakeSnes hardware, the recomp CPU state,
- * and the SDL2 platform layer together into one clean package.
+ * and the SDL3 / OpenGL ES platform layer together into one clean package.
  */
 
 #include "snesrecomp/snesrecomp.h"
 #include "snesrecomp/mp_session.h"
+#include "snesrecomp/menu_overlay.h"
 #include "snes.h"
 #include "ppu.h"
 #include "input.h"
@@ -23,6 +24,9 @@ static Snes *s_snes = NULL;
  * trailing memset), so the buffer must hold 480 rows even though we only show
  * 478 — a 478-row buffer overflows by 4096 bytes into adjacent statics. */
 static uint8_t s_pixel_buf[512 * 480 * 4];
+
+/* Widescreen output (PPU extension columns, single-height rows). */
+static uint8_t s_wide_buf[(256 + 2 * PPU_WIDE_MAX) * 8 * 239];
 
 /* Audio sample buffer (enough for one frame at 32040 Hz / 60 fps) */
 #define SAMPLES_PER_FRAME 534
@@ -87,7 +91,7 @@ bool snesrecomp_init(const char *window_title, int scale) {
         return false;
     }
 
-    /* Set pixel format to RGBX (matches SDL RGBX8888) */
+    /* Pixel format: XBGR bytes (R in byte 3); the renderer swizzles. */
     snes_setPixelFormat(s_snes, pixelFormatRGBX);
 
     /* Point PPU pixel output at our buffer */
@@ -102,7 +106,7 @@ bool snesrecomp_init(const char *window_title, int scale) {
      * by C static-storage semantics, so no explicit reset is needed.
      * Call func_table_init() yourself only if you need to clear the table. */
 
-    /* Initialize SDL2 platform */
+    /* Initialize SDL3 platform (window, GL ES context, audio) */
     if (!platform_init(window_title, scale)) {
         fprintf(stderr, "snesrecomp: failed to initialize platform\n");
         snes_free(s_snes);
@@ -159,12 +163,49 @@ bool snesrecomp_load_rom(const char *path) {
     return true;
 }
 
-bool snesrecomp_begin_frame(void) {
-    /* Poll SDL events */
-    if (!platform_poll_events()) {
-        return false;
+/* Extra PPU columns per side for each aspect setting: 256 SNES columns fill
+ * 4:3, so N:M needs 224 * N/M * 7/8 columns (8:7 pixel aspect). */
+static int widescreen_ext(int aspect) {
+    switch (aspect) {
+    case SNESRECOMP_ASPECT_16_10: return 26;   /* 308 cols ≈ 16:10 */
+    case SNESRECOMP_ASPECT_16_9:  return 43;   /* 342 cols ≈ 16:9  */
+    default:                      return 0;
     }
+}
 
+/* Applied before every frame: presentation-only PPU state, not saved in
+ * save-states (and reset by them), so it is simply re-asserted. */
+static void apply_widescreen(void) {
+    ppu_setWidescreen(s_snes->ppu, widescreen_ext(menu_overlay_get_aspect()),
+                      menu_overlay_get_wide_menus() ? ppu_wideModeAlways : ppu_wideModeMode7);
+}
+
+/* Hand the finished frame to the platform: the 256-wide 2x buffer, or the
+ * widened single-height buffer when widescreen is on. */
+static void submit_video(void) {
+    if (s_snes->ppu->wideExt > 0) {
+        int rows = ppu_putPixelsWide(s_snes->ppu, s_wide_buf);
+        platform_submit_frame(s_wide_buf, (256 + 2 * s_snes->ppu->wideExt) * 2, 0, rows);
+    } else {
+        int rx, ry, rw, rh;
+        snesrecomp_active_video_rect(&rx, &ry, &rw, &rh);
+        platform_submit_frame(s_pixel_buf, SNES_RENDER_WIDTH, ry, rh);
+    }
+}
+
+bool snesrecomp_poll(void) {
+    return platform_poll_events();
+}
+
+int snesrecomp_ticks_due(void) {
+    return platform_ticks_due();
+}
+
+void snesrecomp_present(void) {
+    platform_present();
+}
+
+bool snesrecomp_begin_frame(void) {
     /* Update input and feed into LakeSnes */
     recomp_input_update();
 
@@ -181,6 +222,7 @@ void snesrecomp_end_frame(void) {
     if (!s_snes) return;
 
     /* Start-of-frame PPU bookkeeping (toggles evenFrame, resets mosaic, etc.) */
+    apply_widescreen();
     ppu_handleFrameStart(s_snes->ppu);
     s_snes->input2->scopeLatched = false; /* reset Super Scope latch for new frame */
 
@@ -255,14 +297,11 @@ void snesrecomp_end_frame(void) {
     apu_runCycles(s_snes->apu, apu_cycles * 32);
     snes_setSamples(s_snes, s_audio_buf, SAMPLES_PER_FRAME);
 
-    /* Present video */
-    platform_present_frame(s_pixel_buf);
+    /* Hand the frame to the renderer (drawn at the next present) */
+    submit_video();
 
     /* Queue audio */
     platform_queue_audio(s_audio_buf, SAMPLES_PER_FRAME);
-
-    /* Frame sync */
-    platform_frame_sync();
 }
 
 /* ---- Real-frame path ----
@@ -306,7 +345,6 @@ static void snesrecomp_mp_update(void) {
 }
 
 bool snesrecomp_realframe_begin(void) {
-    if (!platform_poll_events()) return false;
     recomp_input_update();
     snesrecomp_mp_update();   /* lockstep input exchange when a session is active */
     return true;
@@ -314,12 +352,12 @@ bool snesrecomp_realframe_begin(void) {
 
 void snesrecomp_realframe_end(void) {
     if (!s_snes) return;
+    apply_widescreen();
     snes_runFrame(s_snes);
     snes_setPixels(s_snes, s_pixel_buf);
     snes_setSamples(s_snes, s_audio_buf, SAMPLES_PER_FRAME);
-    platform_present_frame(s_pixel_buf);
+    submit_video();
     platform_queue_audio(s_audio_buf, SAMPLES_PER_FRAME);
-    platform_frame_sync();
 }
 
 /* ---- Emulator controls (menu File -> New / Save / Load) ---- */

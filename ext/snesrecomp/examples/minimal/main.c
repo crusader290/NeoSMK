@@ -6,12 +6,11 @@
  * project would have recompiled game functions instead of the
  * placeholder frame logic here.
  *
- * Build:
- *   cmake -B build -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
- *   cmake --build build --config Debug
+ * Build (from the NeoSMK root):
+ *   cmake -B build -DSNESRECOMP_BUILD_EXAMPLES=ON && cmake --build build
  *
  * Run:
- *   build/Debug/snesrecomp_minimal "Super Mario Kart (USA).sfc"
+ *   build/ext/snesrecomp/snesrecomp_minimal game.sfc
  */
 
 #include <snesrecomp/snesrecomp.h>
@@ -23,7 +22,7 @@ int main(int argc, char *argv[]) {
     printf("snesrecomp minimal example\n");
     printf("==========================\n\n");
 
-    /* Initialize snesrecomp (creates LakeSnes instance + SDL2 window) */
+    /* Initialize snesrecomp (creates LakeSnes instance + SDL3 / GL ES window) */
     if (!snesrecomp_init("snesrecomp - Minimal Example", 3)) {
         fprintf(stderr, "Failed to initialize snesrecomp\n");
         return 1;
@@ -39,8 +38,40 @@ int main(int argc, char *argv[]) {
 
     printf("\nRunning... (press Escape to quit)\n\n");
 
-    /* Main loop */
-    while (snesrecomp_begin_frame()) {
+    /* Main loop: events once per display frame, fixed-rate logic ticks,
+     * then one present. */
+    while (snesrecomp_poll()) {
+        int ticks = snesrecomp_ticks_due();
+        for (int i = 0; i < ticks; i++) {
+            snesrecomp_begin_frame();
+            /*
+             * In a real recomp project, this is where you'd call your
+             * recompiled game functions:
+             *
+             *   func_table_call(0x80803A);  // game main loop
+             *
+             * The recompiled code would use bus_read8/bus_write8 for
+             * memory access, which routes to real LakeSnes hardware.
+             *
+             * For this demo, we just let the frame render the backdrop.
+             */
+            snesrecomp_end_frame();
+        }
+        snesrecomp_present();
+    }
+
+    snesrecomp_shutdown();
+        return 1;
+    }
+
+    printf("\nRunning... (press Escape to quit)\n\n");
+
+    /* Main loop: events once per display frame, fixed-rate logic ticks,
+     * then one present. */
+    while (snesrecomp_poll()) {
+      int ticks = snesrecomp_ticks_due();
+      for (int i = 0; i < ticks; i++) {
+        snesrecomp_begin_frame();
         /*
          * In a real recomp project, this is where you'd call your
          * recompiled game functions:
@@ -54,6 +85,8 @@ int main(int argc, char *argv[]) {
          */
 
         snesrecomp_end_frame();
+      }
+      snesrecomp_present();
     }
 
     snesrecomp_shutdown();

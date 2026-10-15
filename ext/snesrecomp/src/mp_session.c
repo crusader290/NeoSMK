@@ -3,7 +3,7 @@
  * No game-specific code. TCP transport; async connect/accept via SDL threads.
  */
 #include "snesrecomp/mp_session.h"
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
