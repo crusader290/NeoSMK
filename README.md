@@ -25,8 +25,8 @@ put your own Super Mario Kart ROM next to `neosmk.exe`. Nothing else needs insta
 
 | | |
 |---|---|
-| ![Race start](docs/screenshots/start.jpg) | ![3D pipes and walls](docs/screenshots/pipes.jpg) |
-| Race start: full-screen 16:9, the scenery and Lakitu extended above the original view, circuit map and corner HUD | Mario Circuit's pipes and barrier blocks as 3D objects |
+| ![Race start](docs/screenshots/start.jpg) |
+| Race start: full-screen 16:9, the scenery and Lakitu extended above the original view, circuit map and corner HUD |
 | ![Widescreen split screen](docs/screenshots/split.jpg) | ![Other tracks](docs/screenshots/tracks.jpg) |
 | The original split-screen layout, widened to 16:9 with the HUD at the edges | Donut Plains, Ghost Valley and Bowser Castle in full-screen |
 
