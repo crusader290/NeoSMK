@@ -14,7 +14,7 @@ two gameplay options (MK64 mini-turbo and MK64 items), never changes the emulate
 
 ## Download (Windows)
 
-Get **`neosmk-windows-x64.zip`** from [`releases/`](releases/README.md) (v0.8.0), unzip it, and
+Get **`neosmk-windows-x64.zip`** from [`releases/`](releases/README.md) (v0.8.1), unzip it, and
 put your own Super Mario Kart ROM next to `neosmk.exe`. Nothing else needs installing.
 
 **The ROM is not included.** Use your own **US v1.0** dump

@@ -6,23 +6,24 @@ installing. **No ROM is included:** put your own US v1.0 dump
 (MD5 `7f25ce5a283d902694c52fb1152fa61a`) next to the executable as
 `Super Mario Kart (USA).sfc`, or drag it onto `neosmk.exe`.
 
-## v0.8.0 (latest)
+## v0.8.1 (latest)
 
-Built from commit `b76d11e` (SDL 3.2.30, Dear ImGui 1.91.9b, dr_mp3 0.6.39, MinGW-w64 GCC 13,
-static runtime). Checksum in [`v0.8.0/SHA256SUMS`](v0.8.0/SHA256SUMS). Linux x64 and
-Raspberry Pi 4 are built from source (see the main README).
+Built from commit `4badf07` (SDL 3.2.30, Dear ImGui 1.91.9b, MinGW-w64 GCC 13, static runtime).
+Checksum in [`v0.8.1/SHA256SUMS`](v0.8.1/SHA256SUMS). Linux x64 and Raspberry Pi 4 are built
+from source (see the main README).
 
 | File | Platform |
 |---|---|
-| [`neosmk-windows-x64.zip`](v0.8.0/neosmk-windows-x64.zip) | Windows 10/11 x64 |
+| [`neosmk-windows-x64.zip`](v0.8.1/neosmk-windows-x64.zip) | Windows 10/11 x64 |
 
-**Latest changes** (the full feature list is in the main README):
+**Changes since v0.8.0** (the full feature list is in the main README):
 
-- **Custom race music** (Sound menu, off by default): put your own `.mp3` files in the `music/`
-  folder next to `neosmk.exe` (included, with a short README). A different song plays each race
-  instead of the course music; the engine, item and Lakitu sounds stay. **Race music volume**
-  sets the level. Songs can be added while the game runs.
-- README rewrite with original-vs-NeoSMK comparison screenshots.
+- **MK64 mini-turbo reworked.** Sparks now charge while you hold the power-slide: yellow, then
+  orange. Holding the D-pad into the turn charges fastest (orange in about a second), and
+  MK64-style taps (outward, then back into the turn) add more. The old version only counted
+  flicks toward the outside, and a slide started without a direction held never charged.
+  Release R on orange for the boost, as before.
+- **Custom race music removed** (the Sound menu options and the `music/` folder are gone).
 
-**Not tested:** this package was built but not run. Netplay peers both need v0.8.0 (custom music
-itself doesn't affect sync; each player hears their own folder).
+**Not tested:** this package was built but not run. Netplay peers both need v0.8.1 (the
+mini-turbo rules changed).
