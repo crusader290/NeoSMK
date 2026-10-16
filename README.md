@@ -23,12 +23,30 @@ put your own Super Mario Kart ROM next to `neosmk.exe`. Nothing else needs insta
 
 ## Screenshots
 
-| | |
-|---|---|
-| ![Race start](docs/screenshots/start.jpg) | ![3D pipes and walls](docs/screenshots/pipes.jpg) |
-| Race start: full-screen 16:9, the scenery and Lakitu extended above the original view, circuit map and corner HUD | Mario Circuit's pipes and barrier blocks as 3D objects |
-| ![Widescreen split screen](docs/screenshots/split.jpg) | ![Other tracks](docs/screenshots/tracks.jpg) |
-| The original split-screen layout, widened to 16:9 with the HUD at the edges | Donut Plains, Ghost Valley and Bowser Castle in full-screen |
+Each pair shows the same moment, without and with NeoSMK's additions.
+
+**Full-screen single-player races.** The race fills the screen instead of the top half. The
+track below the original view is drawn on the GPU, and the scenery and Lakitu are extended
+above it. The overview map gives way to a circuit map and a Mario Kart 8-style HUD.
+
+![Race start, original vs full-screen](docs/screenshots/compare_start.jpg)
+
+**3D objects.** Barrier blocks, warp pipes, coins and item boxes become real 3D objects with
+shadows, depth-sorted against the karts.
+
+![Flat track graphics vs 3D walls and pipes](docs/screenshots/compare_3d.jpg)
+
+**Widescreen.** The game renders extra columns on each side instead of stretching the picture,
+and its own HUD moves out to the screen edges. This also works with the original split-screen
+layout.
+
+![4:3 vs 16:9 split screen](docs/screenshots/compare_widescreen.jpg)
+
+**Other tracks**, all in full-screen 16:9 with their own circuit map:
+
+| Donut Plains 1 | Ghost Valley 1 | Bowser Castle 1 |
+|---|---|---|
+| ![Donut Plains 1](docs/screenshots/track1.jpg) | ![Ghost Valley 1](docs/screenshots/track2.jpg) | ![Bowser Castle 1](docs/screenshots/track3.jpg) |
 
 ## Features
 
