@@ -214,10 +214,17 @@ const SnesHudFrame *snesrecomp_hud(void) { return &s_hud; }
 /* Before a frame: separate the HUD only while presenting full-screen (the
  * previous frame's decision; the first full-screen frame keeps it in place). */
 static void apply_hud(void) {
-    bool on = s_hud_cfg_set && s_hud_cfg.separate && s_view.layout == M7_LAYOUT_FULLSCREEN;
-    /* lines above the band's first visible line are the game's blank strip */
-    ppu_setHud(s_snes->ppu, on, s_view.top_skip + 1, on ? s_view.band[0].line1 : 0, s_hud_cfg.obj_mask,
+    /* any frame with a racing view at the top (1-player HUD lives there) */
+    bool chase = s_view.nbands > 0 && s_view.band[0].chase;
+    bool on = s_hud_cfg_set && s_hud_cfg.separate && chase;
+    /* full-screen: lines above the band's first visible line are the game's
+     * blank strip */
+    int min = s_view.layout == M7_LAYOUT_FULLSCREEN ? s_view.top_skip + 1 : 1;
+    ppu_setHud(s_snes->ppu, on, min, on ? s_view.band[0].line1 : 0, s_hud_cfg.obj_mask,
                s_hud_cfg.bg_mask, s_hud_cfg.window_math);
+    /* full-screen: a screen-wide dim of the band can't extend to the GPU
+     * floor, so it is dropped; the native layout keeps it */
+    s_snes->ppu->hudDropWideMath = s_view.layout == M7_LAYOUT_FULLSCREEN;
 }
 
 /* Upward extension (full-screen layout): the PPU renders the lines that sit
@@ -244,14 +251,64 @@ static void collect_above(int cols) {
 static const uint16_t *s_m7_override = NULL;
 static bool            s_spr_on = false;
 static uint8_t         s_spr_exclude[16];
+static uint8_t         s_spr_front[16];
+static bool            s_anchor_on = false;
+static int8_t          s_anchor_obj[128];
+static int8_t          s_anchor_bg[4];
+static int             s_anchor_cw = 0;
+static int             s_anchor_bg_min = 1;
 static uint8_t         s_spr_buf[(256 + 2 * PPU_WIDE_MAX) * 4 * 239];
 
 void snesrecomp_set_m7_override(const uint16_t *cells) { s_m7_override = cells; }
 
-void snesrecomp_set_sprite_layer(bool enabled, const uint8_t exclude[16]) {
+void snesrecomp_set_sprite_layer(bool enabled, const uint8_t exclude[16], const uint8_t front[16]) {
     s_spr_on = enabled;
     if (exclude) memcpy(s_spr_exclude, exclude, sizeof(s_spr_exclude));
     else memset(s_spr_exclude, 0, sizeof(s_spr_exclude));
+    if (front) memcpy(s_spr_front, front, sizeof(s_spr_front));
+    else memset(s_spr_front, 0, sizeof(s_spr_front));
+}
+
+void snesrecomp_set_ui_anchors(const int8_t obj[128], const int8_t bg[4], int bg_min_line,
+                               int color_window) {
+    s_anchor_bg_min = bg_min_line;
+    s_anchor_on = obj != NULL || bg != NULL || color_window != 0;
+    if (obj) memcpy(s_anchor_obj, obj, sizeof(s_anchor_obj));
+    else memset(s_anchor_obj, 0, sizeof(s_anchor_obj));
+    if (bg) memcpy(s_anchor_bg, bg, sizeof(s_anchor_bg));
+    else memset(s_anchor_bg, 0, sizeof(s_anchor_bg));
+    s_anchor_cw = color_window;
+}
+
+static SnesPreFrameHook s_preframe = NULL;
+static void            *s_preframe_user = NULL;
+
+void snesrecomp_set_preframe_hook(SnesPreFrameHook hook, void *user) {
+    s_preframe = hook;
+    s_preframe_user = user;
+}
+
+void snesrecomp_set_obj_hide(const uint8_t mask[16]) {
+    if (s_snes) ppu_setObjHide(s_snes->ppu, mask);
+}
+
+void snesrecomp_read_oam(int index, SnesOamEntry *out) {
+    static const int sizes[8][2] = { {8, 16}, {8, 32}, {8, 64}, {16, 32},
+                                     {16, 64}, {32, 64}, {16, 32}, {16, 32} };
+    memset(out, 0, sizeof(*out));
+    if (!s_snes || index < 0 || index > 127) return;
+    Ppu *ppu = s_snes->ppu;
+    uint16_t w0 = ppu->oam[index * 2], w1 = ppu->oam[index * 2 + 1];
+    int hi = (ppu->highOam[index >> 2] >> ((index & 3) * 2)) & 3;
+    int x = (w0 & 0xFF) | ((hi & 1) << 8);
+    out->x = x > 255 ? x - 512 : x;
+    out->y = w0 >> 8;
+    out->tile = w1 & 0x1FF;
+    out->palette = (w1 >> 9) & 7;
+    out->priority = (w1 >> 12) & 3;
+    out->hflip = (w1 >> 14) & 1;
+    out->vflip = (w1 >> 15) & 1;
+    out->size = sizes[ppu->objSize & 7][(hi >> 1) & 1];
 }
 
 static void apply_track_layers(void) {
@@ -266,14 +323,31 @@ static void apply_track_layers(void) {
     /* native layout: karts poke out a little below the band */
     int max = s_view.layout == M7_LAYOUT_FULLSCREEN ? l1 : l1 + 8;
     ppu_setObjSep(s_snes->ppu, s_spr_on && l1 > 0, l0, max, s_spr_exclude);
+    ppu_setObjSepFront(s_snes->ppu, s_spr_front);
+    /* UI anchoring: 1-player frames only (2-player HUDs sit per half) */
+    int nchase = 0;
+    for (int i = 0; i < s_view.nbands; i++) nchase += s_view.band[i].chase ? 1 : 0;
+    ppu_setAnchors(s_snes->ppu, s_anchor_on && nchase == 1, 1, 239, s_anchor_obj, s_anchor_bg,
+                   s_anchor_bg_min, s_anchor_cw);
+}
+
+static int s_spr_cols = 0, s_spr_lines = 0;
+
+const uint8_t *snesrecomp_sprite_layer(int *cols, int *lines) {
+    if (cols) *cols = s_spr_cols;
+    if (lines) *lines = s_spr_lines;
+    return s_spr_cols > 0 ? s_spr_buf : NULL;
 }
 
 static void collect_sprites(int cols) {
+    s_spr_cols = s_spr_lines = 0;
     if (!s_snes->ppu->objSepEnabled) {
         renderer_set_sprites(NULL, 0, 0, 0, NULL, 0);
         return;
     }
     int lines = ppu_putObjSep(s_snes->ppu, s_spr_buf);
+    s_spr_cols = cols;
+    s_spr_lines = lines;
     RendererSpriteBand bands[4];
     int n = 0;
     for (int i = 0; i < s_view.nbands && n < 4; i++) {
@@ -292,7 +366,7 @@ static void collect_sprites(int cols) {
 /* After a frame: copy the HUD layer and box each class. */
 static void collect_hud(int cols) {
     s_hud.valid = false;
-    if (!s_snes->ppu->hudEnabled || s_view.layout != M7_LAYOUT_FULLSCREEN) {
+    if (!s_snes->ppu->hudEnabled) {
         renderer_set_hud(NULL, 0, 0);
         return;
     }
@@ -305,9 +379,14 @@ static void collect_hud(int cols) {
     }
     for (int y = 0; y < lines; y++) {
         const uint8_t *row = s_hud_buf + (size_t)y * cols * 4;
+        /* a class spanning (nearly) the whole row is a border, not HUD art:
+         * keep it out of the boxes */
+        int count[4] = { 0, 0, 0, 0 };
+        for (int x = 0; x < cols; x++) count[row[x * 4 + 3] & 3]++;
         for (int x = 0; x < cols; x++) {
             int c = row[x * 4 + 3] & 0x0F;
             if (c <= 0 || c > 3) continue;
+            if (count[c] * 5 > cols * 3) continue;
             if (c == SNES_HUD_MATH) {
                 s_hud.math_flags = ((row[x * 4 + 3] >> 4) & 1) | (((row[x * 4 + 3] >> 5) & 1) << 1);
                 memcpy(s_hud.math_rgb, &row[x * 4], 3);
@@ -343,6 +422,16 @@ static void frame_pixel(const uint8_t *pix, int width, int row0, int rows_per_li
     rgb[0] = p[3] / 255.0f; rgb[1] = p[2] / 255.0f; rgb[2] = p[1] / 255.0f;
 }
 
+/* Pixel of this frame's separated HUD layer, if the PPU took one there. */
+static bool hud_pixel(int cols, int x, int line, float rgb[3]) {
+    Ppu *ppu = s_snes->ppu;
+    if (!ppu->hudEnabled || cols != 256 + 2 * ppu->wideExt) return false;
+    const uint8_t *h = &ppu->hudBuffer[((line - 1 + (ppu->evenFrame ? 0 : 239)) * cols + x) * 4];
+    if ((h[3] & 15) == 0) return false;
+    rgb[0] = h[0] / 255.0f; rgb[1] = h[1] / 255.0f; rgb[2] = h[2] / 255.0f;
+    return true;
+}
+
 static void decide_layout(const uint8_t *pix, int width, int row0, int rows_per_line) {
     M7View *v = &s_view;
     v->layout = M7_LAYOUT_NATIVE;
@@ -365,7 +454,8 @@ static void decide_layout(const uint8_t *pix, int width, int row0, int rows_per_
         bool black = true;
         for (int x = ext; x < ext + 256 && black; x += 4) {
             float c[3];
-            frame_pixel(pix, width, row0, rows_per_line, x, line, c);
+            if (!hud_pixel(cols, x, line, c))   /* the HUD layer is part of it */
+                frame_pixel(pix, width, row0, rows_per_line, x, line, c);
             if (c[0] + c[1] + c[2] > 0.03f) black = false;
         }
         if (!black) break;
@@ -508,6 +598,7 @@ void snesrecomp_end_frame(void) {
     apply_hud();
     apply_above();
     apply_track_layers();
+    if (s_preframe) s_preframe(s_preframe_user);
     ppu_handleFrameStart(s_snes->ppu);
     s_snes->input2->scopeLatched = false; /* reset Super Scope latch for new frame */
 
@@ -642,6 +733,7 @@ void snesrecomp_realframe_end(void) {
     apply_hud();
     apply_above();
     apply_track_layers();
+    if (s_preframe) s_preframe(s_preframe_user);
     snes_runFrame(s_snes);
     snes_setPixels(s_snes, s_pixel_buf);
     snes_setSamples(s_snes, s_audio_buf, SAMPLES_PER_FRAME);

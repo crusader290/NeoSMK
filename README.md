@@ -157,8 +157,17 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
   Mario Circuit) are raised into 3D walls. Walls between the camera and your kart are cut away
   so they never block the view. Collisions are unchanged.
 
+- **3D pipes**, on by default. Mario Circuit's warp pipes become green 3D pipes; their flat
+  sprites are hidden. Used "?" panels are hidden too.
+- **Widescreen UI at the edges**, on by default. In widescreen, SMK's own HUD moves out of the
+  4:3 middle: the timer and item box, lives / coins and the position number go to the right
+  edge, and the race-position icons go to the left.
+
 Karts, shells and other track sprites are depth-sorted against these 3D objects, so a kart in
-front of a wall or coin hides it, and one behind is hidden by it.
+front of a wall or coin hides it, and one behind is hidden by it. Lakitu, the start lights,
+banners and the HUD always stay in front, and walls or pipes between the camera and your kart
+are cut away. In full-screen races, karts you pass stay visible below SMK's original view edge
+(drawn from their last sprite).
 
 **Graphics → Full-screen 1P races** (on by default) makes single-player races fill the screen
 instead of using the top half. The game's race view is shifted down (horizon at ~30% of the

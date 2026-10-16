@@ -102,10 +102,10 @@ void snesrecomp_active_video_rect(int *x, int *y, int *w, int *h);
 #define SNESRECOMP_ASPECT_16_10 1
 #define SNESRECOMP_ASPECT_16_9  2
 
-/* HUD separation for the full-screen layout (m7view.h). A game describes its
- * HUD; while a frame is presented full-screen, the PPU renders those pixels to
- * a separate HUD layer (and the picture without them) so the HUD can be laid
- * out freely (scene3d_ui_hud). Presentation only. */
+/* HUD separation (m7view.h). A game describes its HUD; on frames with a racing
+ * view at the top, the PPU renders those pixels to a separate HUD layer (and
+ * the picture without them), so the HUD can be laid out freely and drawn over
+ * 3D objects (scene3d_ui_hud). Presentation only. */
 typedef struct {
     unsigned char obj_mask[16];   /* OAM entries that are HUD (bit per entry) */
     unsigned char bg_mask;        /* BG layers (bit n = BG n+1) that are HUD on the
@@ -113,7 +113,8 @@ typedef struct {
     bool          window_math;    /* window-shaped colour math on the band is HUD */
     bool          separate;       /* false: only describe the HUD (the full-screen
                                    * layout's upward extension leaves it out) and
-                                   * keep it in the picture */
+                                   * keep it in the picture; true: the caller
+                                   * draws the HUD layer every such frame */
 } SnesHudConfig;
 
 #define SNES_HUD_BG    1          /* classes, as tagged by the PPU */
@@ -140,8 +141,44 @@ void snesrecomp_set_m7_override(const uint16_t *cells);
 /* Sprite layer (presentation only): sprites on the racing bands are taken out
  * of the picture and drawn after the 3D layer at the ground depth under each
  * sprite, so karts and 3D objects occlude each other correctly. `exclude` has
- * a bit per OAM entry to keep in the picture (HUD sprites are always kept). */
-void snesrecomp_set_sprite_layer(bool enabled, const uint8_t exclude[16]);
+ * a bit per OAM entry to keep in the picture (separated HUD sprites are always
+ * kept); entries in `front` (screen-space sprites such as Lakitu, banners or
+ * the HUD) are drawn in front of all 3D. Either mask may be NULL. */
+void snesrecomp_set_sprite_layer(bool enabled, const uint8_t exclude[16], const uint8_t front[16]);
+
+/* The separated sprite layer of the most recently submitted frame (cols x
+ * lines RGBA: rgb + the sprite's bottom scanline, 0 = no sprite, 255 = in
+ * front), or NULL when the frame had none. */
+const uint8_t *snesrecomp_sprite_layer(int *cols, int *lines);
+
+/* One OAM entry as the PPU will draw it. */
+typedef struct {
+    int  x, y;          /* x: -256..255 (9-bit, sign-extended); y: 0..255 */
+    int  tile;          /* 0..511 (name-table bit included) */
+    int  palette;       /* 0..7 */
+    int  priority;      /* 0..3 */
+    bool hflip, vflip;
+    int  size;          /* width = height in pixels */
+} SnesOamEntry;
+void snesrecomp_read_oam(int index, SnesOamEntry *out);
+
+/* Called before every frame is rendered (presentation set-up: OAM then holds
+ * what that frame will show). */
+typedef void (*SnesPreFrameHook)(void *user);
+void snesrecomp_set_preframe_hook(SnesPreFrameHook hook, void *user);
+
+/* OAM entries the next frame leaves out of the picture (bit per entry;
+ * presentation only, e.g. objects drawn in 3D instead). NULL clears. */
+void snesrecomp_set_obj_hide(const uint8_t mask[16]);
+
+/* Widescreen UI anchoring (presentation only): on widened 1-player frames,
+ * OAM entry n is moved obj[n] * extension columns (-1 = to the left edge,
+ * +1 = to the right edge, 0 = stays), BG layer n's content by bg[n] from
+ * scanline bg_min_line down (full-width borders above it stay put) and the
+ * colour window (window-shaped colour math) by color_window. NULL disables.
+ * Sprite range / time-over flags still follow the hardware positions. */
+void snesrecomp_set_ui_anchors(const int8_t obj[128], const int8_t bg[4], int bg_min_line,
+                               int color_window);
 
 /* Emulator controls (menu File -> New / Save / Load). reset() hard-resets and
  * restarts the ROM; save/load_state serialize the full machine state to/from a

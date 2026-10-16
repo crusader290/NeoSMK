@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 typedef struct Scene3DMesh Scene3DMesh;
+typedef struct Scene3DTex Scene3DTex;
 
 typedef struct {
     int target_w, target_h;    /* internal render target size (pixels) */
@@ -57,6 +58,12 @@ void scene3d_draw(const Scene3DMesh *m, const float model[16], const float tint[
 void scene3d_near_cut(float depth);
 /* Soft dark disc on the ground at (x, y), radius in world units. */
 void scene3d_blob_shadow(float x, float y, float radius, float alpha);
+/* Camera-facing textured quad standing on the ground: bottom centre at
+ * (x, y, z), `right` = the camera's unit screen-right on the ground, size in
+ * world units, texture sub-rect uv0..uv1 (alpha < 0.5 is cut out). */
+void scene3d_billboard(const Scene3DTex *t, const float uv0[2], const float uv1[2],
+                       float x, float y, float z, const float right[2],
+                       float width, float height, const float tint[4]);
 void scene3d_end(void);
 
 /* Draw the separated sprite layer (snesrecomp_set_sprite_layer) now, depth-
@@ -65,7 +72,9 @@ void scene3d_end(void);
 void scene3d_sprites(void);
 
 /* ---- 2D overlay (HUD) in internal-target pixels, origin top-left ---- */
-typedef struct Scene3DTex Scene3DTex;
+/* RGBA texture, nearest filtered (pixel art); update with w*h*4 bytes. */
+Scene3DTex *scene3d_tex_rgba(int w, int h);
+void scene3d_tex_update_rgba(Scene3DTex *t, const uint8_t *rgba);
 /* Single-channel (R8) texture, linearly filtered; update with w*h bytes. */
 Scene3DTex *scene3d_tex_r8(int w, int h);
 void scene3d_tex_update(Scene3DTex *t, const uint8_t *data);

@@ -170,6 +170,8 @@ struct Ppu {
   uint8_t hudBgMask;       // bit n = BG n+1
   bool hudWindowMath;
   uint8_t hudSkip;         // internal: what the current compose pass leaves out
+  bool hudWideMath;        // internal: window math covers most of this line
+  bool hudDropWideMath;    // such screen-wide window math is left out (not kept)
   uint8_t objWideIndex[256 + 2 * PPU_WIDE_MAX];   // OAM entry behind each obj pixel
   // (256 + 2 * wideExt) pixels per row: r, g, b, class (ppu_hudClass*, 0 = none;
   // for window math bit 4 = subtract, bit 5 = half), both fields
@@ -200,6 +202,25 @@ struct Ppu {
   int objSepMaxLine;
   uint8_t objSepExclude[16];   // bit per OAM entry
   uint8_t objSepBuffer[(256 + 2 * PPU_WIDE_MAX) * 4 * 239 * 2];
+  uint8_t objSepFront[16];     // entries drawn in front of all 3D (bottom line 255)
+  // Widescreen UI anchoring (NeoSMK, presentation only): on widened frames,
+  // lines anchorMinLine..anchorMaxLine, OAM entry n is drawn objAnchor[n] *
+  // wideExt columns to the side (-1 left edge, +1 right edge, 0 stays), BG n
+  // content by bgAnchor[n] * wideExt and the colour window by
+  // colorWindowAnchor * wideExt. Sprite range/time-over flags are computed
+  // from the hardware positions.
+  bool anchorEnabled;
+  bool anchorLine;         // internal: anchoring active on the current line
+  int anchorMinLine;
+  int anchorMaxLine;
+  int8_t objAnchor[128];
+  int8_t bgAnchor[4];
+  int bgAnchorMinLine;     // BG anchoring starts here (keeps full-width borders above)
+  bool bgAnchorLine;       // internal
+  int colorWindowAnchor;
+  // OAM entries not drawn (NeoSMK, presentation only: replaced by 3D); they
+  // still count toward the hardware range / time-over limits
+  uint8_t objHide[16];
 };
 
 enum { ppu_pixelOutputFormatXBGR = 0, ppu_pixelOutputFormatBGRX = 1 };
@@ -236,6 +257,13 @@ int ppu_putAbove(Ppu* ppu, uint8_t* out);
 void ppu_setM7Override(Ppu* ppu, const uint16_t* cells, int maxLine);
 // sprite separation (see Ppu.objSep*)
 void ppu_setObjSep(Ppu* ppu, bool enabled, int minLine, int maxLine, const uint8_t exclude[16]);
+// OAM entries left out of the picture (see Ppu.objHide); NULL clears
+void ppu_setObjHide(Ppu* ppu, const uint8_t hide[16]);
+// separated sprites of these OAM entries are marked "in front" (bottom line 255)
+void ppu_setObjSepFront(Ppu* ppu, const uint8_t front[16]);
+// widescreen UI anchoring (see Ppu.anchor*)
+void ppu_setAnchors(Ppu* ppu, bool enabled, int minLine, int maxLine, const int8_t objAnchor[128],
+                    const int8_t bgAnchor[4], int bgMinLine, int colorWindowAnchor);
 // copy the last frame's sprite layer like ppu_putHud (4 bytes per pixel)
 int ppu_putObjSep(Ppu* ppu, uint8_t* out);
 // mode-7 line capture of the last frame (lines 1..239 at index line - 1)

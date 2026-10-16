@@ -24,6 +24,7 @@ static int s_markers = 0;
 static int s_itemboxes = 1;
 static int s_minimap = 1;
 static int s_mk8_hud = 1;
+static int s_ui_anchor = 1;
 
 
 static Scene3DMesh *s_pyramid = NULL;
@@ -126,24 +127,39 @@ static void draw_player_fx(const Scene3DFrame *f, const M7View *v, const NeoWorl
  * the hills and trees), and the position
  * numeral is window-shaped colour math (fixed colour added inside colour
  * windows 1 | 2, reshaped per line by HDMA). */
-static void configure_hud(void) {
+static void configure_hud(bool in_race) {
     SnesHudConfig c;
     memset(&c, 0, sizeof(c));
     c.obj_mask[16 >> 3] = 0xFF;          /* OAM 16..23 */
     c.bg_mask = 1 << 1;                  /* BG2 */
     c.window_math = true;
-    c.separate = s_mk8_hud != 0;     /* off: the HUD stays in the picture */
+    c.separate = in_race;      /* drawn by draw_hud, over the 3D */
     snesrecomp_set_hud_config(&c);
 }
 
 /* Mario Kart 8 placement: timer top right, lives / coins bottom left, a big
  * position numeral bottom right with the circuit map above it. */
+/* SMK's HUD where the game put it (separated so it stays over the 3D). */
+static void draw_hud_in_place(const Scene3DFrame *f, const M7View *v) {
+    const SnesHudFrame *hf = snesrecomp_hud();
+    if (!hf->valid) return;
+    float sx = (float)f->target_w / hf->cols, sy = (float)f->target_h / hf->lines;
+    int off = v->layout == M7_LAYOUT_FULLSCREEN ? v->line_offset : 0;
+    for (int cls = 1; cls <= 3; cls++) {
+        if (!hf->box[cls].present) continue;
+        scene3d_ui_hud(cls, hf->box[cls].x0 * sx, (hf->box[cls].y0 + off) * sy, 1.0f);
+    }
+}
+
 static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) {
     float tw = (float)f->target_w, th = (float)f->target_h;
     float m = th * 0.03f;
     float bottom = th - m;
+    bool full = v->layout == M7_LAYOUT_FULLSCREEN;
     scene3d_ui_begin(f);
-    if (s_mk8_hud) {
+    if (!full || !s_mk8_hud) {
+        draw_hud_in_place(f, v);
+    } else {
         float wd, ht;
         if (scene3d_ui_hud_size(SNES_HUD_BG, 1.0f, &wd, &ht))
             scene3d_ui_hud(SNES_HUD_BG, tw - m - wd, m, 1.0f);
@@ -169,7 +185,7 @@ static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) 
         if (steady_h > 0.0f) bottom = th - m - 2.0f * steady_h - m * 0.5f;
     }
     scene3d_ui_end();
-    if (s_minimap) neo_minimap_draw(f, v, w, tw - m, bottom, th * 0.30f);
+    if (full && s_minimap) neo_minimap_draw(f, v, w, tw - m, bottom, th * 0.30f);
 }
 
 static void neo_scene(const Scene3DFrame *f, void *user) {
@@ -178,34 +194,63 @@ static void neo_scene(const Scene3DFrame *f, void *user) {
     if (v->nbands == 0) return;
     NeoWorld w;
     neo_world_read(&w);
-    if (!w.in_race) return;
-    static uint32_t frames = 0;
-    frames++;
-    neo_track_draw(f, v, &w, frames / 60.0f);
-    if (s_itemboxes) neo_itembox_draw(f, v, frames / 60.0f);
-    draw_player_fx(f, v, &w);
-    if (s_markers) draw_markers(f, v, &w);
-    scene3d_sprites();          /* karts and track objects, depth-sorted with the 3D */
-    if (v->layout == M7_LAYOUT_FULLSCREEN) draw_hud(f, v, &w);
+    if (w.in_race) {
+        static uint32_t frames = 0;
+        frames++;
+        neo_track_draw(f, v, &w, frames / 60.0f);
+        neo_pipes_draw(f, v, &w);
+        neo_karts_draw(f, v, &w);
+        if (s_itemboxes) neo_itembox_draw(f, v, frames / 60.0f);
+        draw_player_fx(f, v, &w);
+        if (s_markers) draw_markers(f, v, &w);
+        scene3d_sprites();      /* karts and track objects, depth-sorted with the 3D */
+    }
+    /* the separated HUD (also on the frame the race ends, while the
+     * separation still lags a frame behind) */
+    if (snesrecomp_hud()->valid) draw_hud(f, v, &w);
 }
 
 bool neo_track_hides_panels(void) { return s_itemboxes != 0; }
 
 /* The 3D layer needs the track sprites (karts, shells, ...) on their own
- * depth-sorted layer. Kept in the picture: OAM 0-15 (held item, Lakitu and
- * the start lights), 16-23 (lives / coins), 24-27 (banner text) and 120-127. */
+ * depth-sorted layer. Screen-space sprites go in front of all 3D: OAM 0-7
+ * (race position icons), 8-15 (Lakitu and the start lights), 16-23 (lives /
+ * coins), 24-27 (banner text) and 120-127 (Lakitu's shadow). SMK hands out
+ * the other entries to karts and objects as it needs them. */
+static const uint8_t k_front_oam[16] = { 0xFF, 0xFF, 0xFF, 0x0F, 0, 0, 0, 0,
+                                          0, 0, 0, 0, 0, 0, 0, 0xFF };
+
+/* Widescreen: SMK's own UI moves to the screen edges instead of staying in
+ * the 4:3 middle. Position icons (OAM 0-7) go left; lives / coins (16-23),
+ * the timer / item box (BG2) and the position number (colour window) go right. */
+static void configure_anchors(void) {
+    static int8_t obj[128];
+    static const int8_t bg[4] = { 0, 1, 0, 0 };
+    for (int i = 0; i < 8; i++) obj[i] = -1;
+    for (int i = 16; i < 24; i++) obj[i] = 1;
+    /* BG2 lines 1-3 are a full-width black border; the timer starts below */
+    if (s_ui_anchor) snesrecomp_set_ui_anchors(obj, bg, 4, 1);
+    else snesrecomp_set_ui_anchors(NULL, NULL, 0, 0);
+}
+
 void neo_overlay_sync(bool in_race) {
     static int applied = -1;
-    if (applied != s_mk8_hud) { configure_hud(); applied = s_mk8_hud; }
+    if (applied != (int)in_race) { configure_hud(in_race); applied = in_race; }
     bool any3d = s_itemboxes || s_markers || neo_track_coins_enabled() || neo_track_walls_enabled();
-    static const uint8_t exclude[16] = { 0xFF, 0xFF, 0xFF, 0x0F, 0, 0, 0, 0,
-                                         0, 0, 0, 0, 0, 0, 0, 0xFF };
-    snesrecomp_set_sprite_layer(in_race && any3d, exclude);
+    snesrecomp_set_sprite_layer(in_race && any3d, NULL, k_front_oam);
+    static int anchors = -1;
+    int want = in_race && s_ui_anchor;
+    if (want != anchors) {
+        anchors = want;
+        if (want) configure_anchors();
+        else snesrecomp_set_ui_anchors(NULL, NULL, 0, 0);
+    }
 }
 
 void neo_register_options(void) {
     neo_gameplay_register_options();
     neo_track_register_options();
+    neo_pipes_register_options();
     menu_overlay_add_option("NeoSMK", "3D item boxes", "neo_itemboxes", &s_itemboxes, 1, NULL,
                             "Spinning Mario Kart 64-style boxes over the \"?\" panels\n"
                             "(visual only; a box disappears once its panel is used).");
@@ -216,6 +261,10 @@ void neo_register_options(void) {
     menu_overlay_add_option("NeoSMK", "MK8-style HUD (full-screen)", "neo_mk8_hud", &s_mk8_hud, 1, NULL,
                             "Move the timer, lives / coins and position number to the\n"
                             "screen corners in full-screen single-player races.");
+    menu_overlay_add_option("NeoSMK", "Widescreen UI at the edges", "neo_ui_anchor", &s_ui_anchor, 1, NULL,
+                            "In widescreen, move SMK's own HUD (timer and item box,\n"
+                            "lives / coins, position number and icons) out to the screen\n"
+                            "edges instead of the 4:3 middle.");
     menu_overlay_add_option("Debug", "3D camera markers", "neo_debug_markers", &s_markers,
                             1, NULL,
                             "Float a 3D marker over every racer using the camera\n"
@@ -225,4 +274,5 @@ void neo_register_options(void) {
 
 void neo_install(void) {
     scene3d_set_hook(neo_scene, NULL);
+    neo_pipes_install();
 }

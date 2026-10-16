@@ -95,6 +95,26 @@ the numeral is still drawn whole and leaves nothing behind in the picture. The H
 described to the PPU when the MK8 layout is off, so the upward extension never extends the
 timer's BG2 layer.
 
+### Widescreen UI anchoring — done
+
+On widened frames the PPU can move UI out to the screen edges (presentation only,
+`Ppu.anchor*`, `snesrecomp_set_ui_anchors`). OAM entries get a per-entry side (-1 / 0 / +1);
+they're drawn shifted by the extension width but counted for range / time-over at their
+hardware position. BG layers shift from a given scanline down. SMK's BG2 lines 1–3 are a
+full-width black border, so the shift starts at line 4. The colour window shifts by the same
+amount. SMK: race-position icons (OAM 0–7) go left; lives / coins (16–23), the timer and item
+box (BG2) and the position number (colour window) go right.
+
+### HUD over the 3D layer — done
+
+The HUD is separated from the picture on every racing frame, not only in the MK8 layout.
+NeoSMK draws it after the 3D objects and sprites, in place when the MK8 layout is off.
+Window-shaped colour maths covering most of a line (SMK dims the whole view on "ranked out",
+leaving the position number as a hole) is a screen effect, not HUD. The native layout keeps
+it; full-screen drops it, because the GPU floor couldn't match it. HUD rows spanning almost
+the whole width (borders) stay out of the HUD boxes. Border detection reads the HUD layer as
+well, so a separated border can't stop being detected.
+
 ### Depth-sorted sprites — done
 
 3D objects drawn over the SNES picture would cover karts that are in front of them. The PPU
@@ -103,8 +123,16 @@ each such pixel goes to a sprite layer with its colour and the bottom scanline o
 and the picture is re-composited without it. The renderer draws that layer after the 3D
 objects, giving each pixel the ground depth under its sprite's bottom line,
 `depth = focal · height / (bottom − horizon)`, through `gl_FragDepth`. Karts and 3D objects
-then occlude each other correctly. SMK keeps OAM 0–27 and 120–127 (held item, Lakitu and the
-start lights, lives / coins, banner text) in the picture.
+then occlude each other correctly. Screen-space sprites (SMK's OAM 0–27 and 120–127: position
+icons, Lakitu and the start lights, lives / coins, banner text, Lakitu's shadow) are marked
+"in front" (bottom line 255) and drawn over all 3D. SMK hands out the remaining entries to
+karts and objects dynamically.
+
+In the full-screen layout SMK stops drawing a kart once it drops below the band's bottom edge
+(the split-screen border on the SNES). `src/neo/neo_karts.c` captures each CPU kart's sprite
+from the sprite layer while it is inside the band, then draws that capture as a
+camera-facing billboard (`scene3d_billboard`) with a blob shadow once the kart is below the
+edge.
 
 ### B2. HD Mode 7 floor (optional, high payoff)
 
@@ -140,9 +168,15 @@ Order by visual payoff vs risk:
    `snesrecomp_set_m7_override`) paints each coin / panel cell with the road around it, on the
    racing bands only (also used for the GPU floor). Stripes such as the start grid are
    continued from the nearest visible cells left / right or up / down. VRAM is untouched.
-5. **Pipes / other track obstacles** (static): instanced meshes
-6. **Shells, bananas** (dynamic but simple)
-7. **Karts** (8 drivers × 12 rotation sprites today). A 300–800-triangle kart with a 128–256 px
+5. **Pipes**: **done** (`src/neo/neo_pipes.c`). Pipes are objects in SMK's slots (WRAM $1800 +
+   n·$80, handler +$04 = $E4E7). Each is drawn as a green 3D pipe. Before every frame
+   (`snesrecomp_set_preframe_hook`), its palette-7 sprites near the pipe's projected base are
+   hidden (`Ppu.objHide`: not drawn, but still counted like hardware). Used "?" panels (tiles
+   $D4–$D7, road behaviour) are hidden through the tile override, which remembers every cell
+   that held a panel this race.
+6. **Other track obstacles** (Thwomps, moles, Cheep Cheeps)
+7. **Shells, bananas** (dynamic but simple)
+8. **Karts** (8 drivers × 12 rotation sprites today). A 300–800-triangle kart with a 128–256 px
    texture each; the driver can stay a camera-facing billboard at first
 
 For each promoted object:

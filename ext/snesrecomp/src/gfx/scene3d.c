@@ -73,6 +73,31 @@ static const char *kBlobFS =
     "    o_color = vec4(0.0, 0.0, 0.0, a);\n"
     "}\n";
 
+static const char *kBillVS =
+    "in vec2 a_pos;\n"
+    "uniform mat4 u_clip;\n"
+    "uniform vec3 u_base;\n"          /* bottom centre */
+    "uniform vec4 u_rs;\n"            /* right.xy, width, height */
+    "uniform vec4 u_uv;\n"            /* uv0, uv1 */
+    "out vec2 v_uv;\n"
+    "void main() {\n"
+    "    vec2 q = a_pos * 0.5 + 0.5;\n"   /* 0..1, y up */
+    "    vec3 p = u_base + vec3(u_rs.xy * (q.x - 0.5) * u_rs.z, q.y * u_rs.w);\n"
+    "    v_uv = vec2(mix(u_uv.x, u_uv.z, q.x), mix(u_uv.w, u_uv.y, q.y));\n"
+    "    gl_Position = u_clip * vec4(p, 1.0);\n"
+    "}\n";
+
+static const char *kBillFS =
+    "in vec2 v_uv;\n"
+    "out vec4 o_color;\n"
+    "uniform sampler2D u_tex;\n"
+    "uniform vec4 u_tint;\n"
+    "void main() {\n"
+    "    vec4 t = texture(u_tex, v_uv);\n"
+    "    if (t.a < 0.5) discard;\n"
+    "    o_color = vec4(t.rgb * u_tint.rgb, 1.0);\n"
+    "}\n";
+
 static const char *kUiVS =
     "in vec2 a_pos;\n"
     "uniform vec4 u_rect;\n"        /* centre xy, half-size zw, target px (top-left origin) */
@@ -135,6 +160,8 @@ static struct {
     GLuint mesh_prog, blob_prog;
     GLint  m_clip, m_model, m_light, m_tint, m_eye, m_cut;
     GLint  b_clip, b_blob, b_alpha;
+    GLuint bill_prog;
+    GLint  bl_clip, bl_base, bl_rs, bl_uv, bl_tex, bl_tint;
     GLuint blob_vao, blob_vbo;
     float  clip[16];
     Scene3DHook hook;
@@ -166,6 +193,14 @@ bool scene3d_init(void) {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void *)0);
     glBindVertexArray(0);
+    S.bill_prog = smkgl_build_program("scene3d-billboard", kBillVS, kBillFS, blob_attr);
+    if (!S.bill_prog) return false;
+    S.bl_clip = glGetUniformLocation(S.bill_prog, "u_clip");
+    S.bl_base = glGetUniformLocation(S.bill_prog, "u_base");
+    S.bl_rs   = glGetUniformLocation(S.bill_prog, "u_rs");
+    S.bl_uv   = glGetUniformLocation(S.bill_prog, "u_uv");
+    S.bl_tex  = glGetUniformLocation(S.bill_prog, "u_tex");
+    S.bl_tint = glGetUniformLocation(S.bill_prog, "u_tint");
     static const char *const ui_attr[] = { "a_pos", NULL };
     U.ui_prog = smkgl_build_program("scene3d-ui", kUiVS, kUiFS, ui_attr);
     if (!U.ui_prog) return false;
@@ -186,6 +221,7 @@ bool scene3d_init(void) {
 void scene3d_shutdown(void) {
     if (S.mesh_prog) glDeleteProgram(S.mesh_prog);
     if (S.blob_prog) glDeleteProgram(S.blob_prog);
+    if (S.bill_prog) glDeleteProgram(S.bill_prog);
     if (U.ui_prog)   glDeleteProgram(U.ui_prog);
     memset(&U, 0, sizeof(U));
     if (S.blob_vbo)  glDeleteBuffers(1, &S.blob_vbo);
@@ -386,6 +422,26 @@ void scene3d_blob_shadow(float x, float y, float radius, float alpha) {
     glDepthMask(GL_TRUE);
 }
 
+void scene3d_billboard(const Scene3DTex *t, const float uv0[2], const float uv1[2],
+                       float x, float y, float z, const float right[2],
+                       float width, float height, const float tint[4]) {
+    if (!t) return;
+    static const float white[4] = { 1, 1, 1, 1 };
+    const float *c = tint ? tint : white;
+    glUseProgram(S.bill_prog);
+    glDepthMask(GL_TRUE);
+    glUniformMatrix4fv(S.bl_clip, 1, GL_FALSE, S.clip);
+    glUniform3f(S.bl_base, x, y, z);
+    glUniform4f(S.bl_rs, right[0], right[1], width, height);
+    glUniform4f(S.bl_uv, uv0[0], uv0[1], uv1[0], uv1[1]);
+    glUniform4f(S.bl_tint, c[0], c[1], c[2], c[3]);
+    glUniform1i(S.bl_tex, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, t->tex);
+    glBindVertexArray(S.blob_vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
 void scene3d_end(void) {
     glDisable(GL_BLEND);
     glDisable(GL_SCISSOR_TEST);
@@ -434,6 +490,27 @@ Scene3DTex *scene3d_tex_r8(int w, int h) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     return t;
+}
+
+Scene3DTex *scene3d_tex_rgba(int w, int h) {
+    Scene3DTex *t = (Scene3DTex *)calloc(1, sizeof(*t));
+    if (!t) return NULL;
+    t->w = w; t->h = h;
+    glGenTextures(1, &t->tex);
+    glBindTexture(GL_TEXTURE_2D, t->tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    return t;
+}
+
+void scene3d_tex_update_rgba(Scene3DTex *t, const uint8_t *rgba) {
+    if (!t) return;
+    glBindTexture(GL_TEXTURE_2D, t->tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, t->w, t->h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 }
 
 void scene3d_tex_update(Scene3DTex *t, const uint8_t *data) {

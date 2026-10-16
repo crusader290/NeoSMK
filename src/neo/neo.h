@@ -56,6 +56,15 @@ static inline bool neo_band_lines(const M7View *v, const M7Band *b, int overhang
     return *l1 >= *l0;
 }
 
+/* Depth in front of which solid track objects (walls, pipes) are left out so
+ * they never hide the player's kart: just short of the kart this band follows
+ * (chase bands are in player order). */
+static inline float neo_view_cut(const M7Band *b, const NeoWorld *w, int player) {
+    const NeoRacer *r = &w->racer[player >= 0 && player < SMK_RACER_COUNT ? player : 0];
+    float kd = (r->x - b->cam[0]) * b->fwd[0] + (r->y - b->cam[1]) * b->fwd[1];
+    return kd - 4.0f;
+}
+
 /* 3D item boxes over the "?" panels (draws into the current scene hook). */
 void neo_itembox_draw(const Scene3DFrame *f, const M7View *v, float time_s);
 
@@ -74,6 +83,15 @@ bool neo_track_walls_enabled(void);
 bool neo_track_hides_panels(void);            /* = 3D item boxes on (neo_overlay.c) */
 /* Sprite layer on/off for the 3D layer (neo_overlay.c); once per frame. */
 void neo_overlay_sync(bool in_race);
+
+/* 3D warp pipes (their sprites are hidden before each frame). */
+void neo_pipes_register_options(void);
+void neo_pipes_install(void);
+void neo_pipes_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w);
+
+/* Full-screen layout: other karts below SMK's race view, as billboards of
+ * their last captured sprite. */
+void neo_karts_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w);
 
 /* Install the 3D overlay hook. Call after snesrecomp_init. */
 void neo_install(void);

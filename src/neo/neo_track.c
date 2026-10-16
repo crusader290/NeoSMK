@@ -36,6 +36,7 @@ static uint8_t  s_tile[128 * 128];
 static uint8_t  s_beh[256];
 static bool     s_valid = false;
 static uint16_t s_override[128 * 128];
+static uint8_t  s_was_panel[128 * 128];  /* cells that held a "?" panel this race */
 static bool     s_override_on = false;
 
 typedef struct { float x, y, depth; } Coin;
@@ -172,7 +173,7 @@ static bool visible_tile(int x, int y, uint8_t *t) {
     if (x < 0 || y < 0 || x > 127 || y > 127) return false;
     *t = s_tile[y * 128 + x];
     uint8_t b = s_beh[*t];
-    return b != SMK_TILE_COIN && b != SMK_TILE_ITEM_PANEL;
+    return b != SMK_TILE_COIN && b != SMK_TILE_ITEM_PANEL && !s_was_panel[y * 128 + x];
 }
 
 static uint8_t replacement_tile(int tx, int ty) {
@@ -206,7 +207,8 @@ static void rebuild(void) {
             s_coin[s_ncoins].y = (i >> 7) * 8.0f + 4.0f;
             s_ncoins++;
         }
-        if (hidden_beh(beh)) {
+        /* a used panel becomes a dimmed "used" tile with road behaviour */
+        if (hidden_beh(beh) || (s_was_panel[i] && neo_track_hides_panels())) {
             s_override[i] = replacement_tile(i & 127, i >> 7);
             any = true;
         }
@@ -230,6 +232,10 @@ void neo_track_update(bool in_race) {
     for (int t = 0; t < 256; t++) beh[t] = bus_wram_read8(SMK_RAM_TILE_BEHAVIOUR + t);
     bool changed = !s_valid || memcmp(tile, s_tile, sizeof(tile)) != 0 ||
                    memcmp(beh, s_beh, sizeof(beh)) != 0;
+    if (!s_valid || memcmp(beh, s_beh, sizeof(beh)) != 0)    /* new track */
+        memset(s_was_panel, 0, sizeof(s_was_panel));
+    for (int i = 0; i < 128 * 128; i++)
+        if (beh[tile[i]] == SMK_TILE_ITEM_PANEL) s_was_panel[i] = 1;
     if (changed || last_coins != s_coins3d || last_panels != hide_panels) {
         /* walls only change with the barrier layout */
         if (!s_valid || memcmp(beh, s_beh, sizeof(beh)) != 0) s_walls_dirty = true;
@@ -360,11 +366,8 @@ void neo_track_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w, f
         scene3d_begin(clip, light);
         float br = b->brightness;
         if (walls) {
-            /* the player this band follows (chase bands are in player order) */
-            const NeoRacer *r = &w->racer[player < SMK_RACER_COUNT ? player : 0];
-            float kd = (r->x - b->cam[0]) * b->fwd[0] + (r->y - b->cam[1]) * b->fwd[1];
             float tint[4] = { br, br, br, 1.0f };
-            scene3d_near_cut(kd * 0.75f);
+            scene3d_near_cut(neo_view_cut(b, w, player));
             for (int i = 0; i < s_nwall_meshes; i++) scene3d_draw(s_wall_mesh[i], ident, tint);
             scene3d_near_cut(0.0f);
         }

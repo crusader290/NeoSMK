@@ -53,6 +53,8 @@ add_library(smk_game OBJECT
     src/neo/neo_gameplay.c
     src/neo/neo_itembox.c
     src/neo/neo_track.c
+    src/neo/neo_pipes.c
+    src/neo/neo_karts.c
     src/neo/neo_minimap.c
 )
 target_include_directories(smk_game PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)

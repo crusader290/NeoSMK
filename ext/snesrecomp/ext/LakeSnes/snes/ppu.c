@@ -89,6 +89,8 @@ Ppu* ppu_init(Snes* snes) {
   ppu->hudBgMask = 0;
   ppu->hudWindowMath = false;
   ppu->hudSkip = 0;
+  ppu->hudWideMath = false;
+  ppu->hudDropWideMath = false;
   memset(ppu->hudBuffer, 0, sizeof(ppu->hudBuffer));
   ppu->aboveLines = 0;
   ppu->aboveFromLine = 0;
@@ -103,6 +105,16 @@ Ppu* ppu_init(Snes* snes) {
   ppu->objSepMaxLine = 0;
   memset(ppu->objSepExclude, 0, sizeof(ppu->objSepExclude));
   memset(ppu->objSepBuffer, 0, sizeof(ppu->objSepBuffer));
+  memset(ppu->objSepFront, 0, sizeof(ppu->objSepFront));
+  ppu->anchorEnabled = false;
+  ppu->anchorLine = false;
+  ppu->anchorMinLine = ppu->anchorMaxLine = 0;
+  ppu->bgAnchorLine = false;
+  ppu->bgAnchorMinLine = 0;
+  memset(ppu->objAnchor, 0, sizeof(ppu->objAnchor));
+  memset(ppu->bgAnchor, 0, sizeof(ppu->bgAnchor));
+  ppu->colorWindowAnchor = 0;
+  memset(ppu->objHide, 0, sizeof(ppu->objHide));
   return ppu;
 }
 
@@ -313,6 +325,8 @@ void ppu_runLine(Ppu* ppu, int line) {
     ppu_renderAbove(ppu, line);
   }
   ppu->m7OverrideLine = ppu->m7Override != NULL && line <= ppu->m7OverrideMaxLine;
+  ppu->anchorLine = ppu->anchorEnabled && line >= ppu->anchorMinLine && line <= ppu->anchorMaxLine;
+  ppu->bgAnchorLine = ppu->anchorLine && line >= ppu->bgAnchorMinLine;
   // evaluate sprites
   memset(ppu->objPixelBuffer, 0, sizeof(ppu->objPixelBuffer));
   memset(ppu->objWidePixel, 0, sizeof(ppu->objWidePixel));
@@ -332,6 +346,17 @@ void ppu_runLine(Ppu* ppu, int line) {
       m7->c = ppu->m7matrix[2];
       m7->brightness = ppu->brightness;
     }
+  }
+  // window-shaped colour math covering most of the line is a screen effect
+  // (e.g. dimming everything but a cut-out), not a HUD element
+  ppu->hudWideMath = false;
+  if(ppu->hudEnabled && ppu->hudWindowMath && (ppu->preventMathMode == 1 || ppu->preventMathMode == 2)) {
+    int n = 0;
+    for(int x = 0; x < 256; x++) {
+      bool ws = ppu_getWindowState(ppu, 5, x);
+      n += ppu->preventMathMode == 1 ? ws : !ws;
+    }
+    ppu->hudWideMath = n > 160;
   }
   int ext = ppu->wideFrame ? ppu->wideExt : 0;
   for(int x = -ext; x < 256 + ext; x++) {
@@ -457,6 +482,27 @@ void ppu_setObjSep(Ppu* ppu, bool enabled, int minLine, int maxLine, const uint8
   if(exclude) memcpy(ppu->objSepExclude, exclude, 16);
 }
 
+void ppu_setObjHide(Ppu* ppu, const uint8_t hide[16]) {
+  if(hide) memcpy(ppu->objHide, hide, 16);
+  else memset(ppu->objHide, 0, 16);
+}
+
+void ppu_setObjSepFront(Ppu* ppu, const uint8_t front[16]) {
+  if(front) memcpy(ppu->objSepFront, front, 16);
+  else memset(ppu->objSepFront, 0, 16);
+}
+
+void ppu_setAnchors(Ppu* ppu, bool enabled, int minLine, int maxLine, const int8_t objAnchor[128],
+                    const int8_t bgAnchor[4], int bgMinLine, int colorWindowAnchor) {
+  ppu->anchorEnabled = enabled;
+  ppu->bgAnchorMinLine = bgMinLine;
+  ppu->anchorMinLine = minLine;
+  ppu->anchorMaxLine = maxLine;
+  if(objAnchor) memcpy(ppu->objAnchor, objAnchor, 128);
+  if(bgAnchor) memcpy(ppu->bgAnchor, bgAnchor, 4);
+  ppu->colorWindowAnchor = colorWindowAnchor;
+}
+
 int ppu_putObjSep(Ppu* ppu, uint8_t* out) {
   int stride = (256 + 2 * ppu->wideExt) * 4;
   int rows = ppu->frameOverscan ? 239 : 224;
@@ -514,7 +560,8 @@ static int ppu_objBottomLine(Ppu* ppu, int n) {
   int size = spriteSizes[ppu->objSize][(ppu->highOam[index >> 3] >> ((index & 7) + 1)) & 1];
   int height = ppu->objInterlace ? size / 2 : size;
   int bottom = (y + height) & 0xff;
-  return bottom == 0 ? 1 : bottom;
+  if(bottom == 0) return 1;
+  return bottom > 254 ? 254 : bottom;   // 255 marks "in front" sprites
 }
 
 static void ppu_composePixel(Ppu* ppu, int x, int y, int* pr, int* pg, int* pb,
@@ -593,7 +640,10 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
        (info.mainLayer == 4 || info.mainLayer == 6) && ppu_objIsSep(ppu, x)) {
       // a track sprite: to the sprite layer, the picture shows what is behind it
       sepR = info.baseR; sepG = info.baseG; sepB = info.baseB;
-      sepBottom = ppu_objBottomLine(ppu, ppu->objWideIndex[x + PPU_WIDE_MAX]);
+      {
+        uint8_t n = ppu->objWideIndex[x + PPU_WIDE_MAX];
+        sepBottom = ((ppu->objSepFront[n >> 3] >> (n & 7)) & 1) ? 255 : ppu_objBottomLine(ppu, n);
+      }
       ppu->hudSkip = 8;
       ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
       ppu->hudSkip = 0;
@@ -607,18 +657,22 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
       } else if(ml < 4 && ppu->mode != 7 && ((ppu->hudBgMask >> ml) & 1)) {
         hudClass = ppu_hudClassBg; skip = 2;
         hudR = info.baseR; hudG = info.baseG; hudB = info.baseB;
-      } else if(ppu->hudWindowMath && info.mathByWindow) {
+      } else if(ppu->hudWindowMath && info.mathByWindow && !ppu->hudWideMath) {
         hudClass = ppu_hudClassMath | (ppu->subtractColor ? 0x10 : 0) | (ppu->halfColor ? 0x20 : 0);
         skip = 4;
         hudR = ppu->fixedColorR; hudG = ppu->fixedColorG; hudB = ppu->fixedColorB;
+      } else if(ppu->hudWindowMath && info.mathByWindow && ppu->hudDropWideMath) {
+        skip = 4;   // screen-wide effect the layout can't carry: left out
       }
       if(skip) {   // the picture as it would look without the HUD element
         ppu->hudSkip = (uint8_t)(skip | (sepBottom ? 8 : 0));
         ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
-        if(skip != 4 && ppu->hudWindowMath && info.mathByWindow) {
+        if(skip != 4 && ppu->hudWindowMath && info.mathByWindow &&
+           (!ppu->hudWideMath || ppu->hudDropWideMath)) {
           // window-math HUD (the position numeral) under a HUD sprite / BG:
-          // leave it out of the picture too, flagged so it is still drawn
-          hudClass |= 0x40;
+          // leave it out of the picture too, flagged so it is still drawn;
+          // a dropped screen-wide effect goes as well
+          if(!ppu->hudWideMath) hudClass |= 0x40;
           ppu->hudSkip |= 4;
           ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
         }
@@ -704,6 +758,7 @@ static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b
           pixel = ppu_getPixelForMode7(ppu, lx, curLayer, curPriority);
         } else {
           lx += ppu->bgLayer[curLayer].hScroll;
+          if(ppu->wideFrame && ppu->bgAnchorLine) lx -= ppu->bgAnchor[curLayer] * ppu->wideExt;
           if(ppu->mode == 5 || ppu->mode == 6) {
             lx *= 2;
             lx += (sub || ppu->bgLayer[curLayer].mosaicEnabled) ? 0 : 1;
@@ -899,6 +954,8 @@ static bool ppu_getWindowState(Ppu* ppu, int layer, int x) {
   if(!ppu->windowLayer[layer].window1enabled && !ppu->windowLayer[layer].window2enabled) {
     return false;
   }
+  // widescreen UI anchoring of the colour window (window-shaped colour math)
+  if(layer == 5 && ppu->wideFrame && ppu->anchorLine) x -= ppu->colorWindowAnchor * ppu->wideExt;
   // widescreen extension columns take the window state of the nearest edge
   if(x < 0) x = 0;
   if(x > 255) x = 255;
@@ -942,9 +999,9 @@ static void ppu_evaluateSprites(Ppu* ppu, int line) {
     uint8_t row = line - y;
     int spriteSize = spriteSizes[ppu->objSize][(ppu->highOam[index >> 3] >> ((index & 7) + 1)) & 1];
     int spriteHeight = ppu->objInterlace ? spriteSize / 2 : spriteSize;
-    // virtual lines above the screen: only sprites that wrap past line 255
-    // (others are parked off the bottom or belong to the lower screen)
-    if(row < spriteHeight && (!ppu->evalAbove || y + spriteHeight > 256)) {
+    // virtual lines above the screen (line < 0): only sprites that wrap past
+    // line 255 (others are parked off the bottom or belong to the lower screen)
+    if(row < spriteHeight && (!ppu->evalAbove || line >= 0 || y + spriteHeight > 256)) {
       // in y-range, get the x location, using the high bit as well
       int x = ppu->oam[index] & 0xff;
       x |= ((ppu->highOam[index >> 3] >> (index & 7)) & 1) << 8;
@@ -976,6 +1033,9 @@ static void ppu_evaluateSprites(Ppu* ppu, int line) {
     x |= ((ppu->highOam[index >> 3] >> (index & 7)) & 1) << 8;
     if(x > 255) x -= 512;
     bool hwSprite = x > -spriteSize;
+    // widescreen UI anchoring: drawn shifted, counted where the hardware has it
+    int drawX = x + (ppu->wideFrame && ppu->anchorLine ? ppu->objAnchor[index >> 1] * ext : 0);
+    bool hidden = (ppu->objHide[index >> 4] >> ((index >> 1) & 7)) & 1;
     // update row according to obj-interlace
     if(ppu->objInterlace) row = row * 2 + (ppu->evenFrame ? 0 : 1);
     // get some data for the sprite and y-flip row if needed
@@ -985,15 +1045,16 @@ static void ppu_evaluateSprites(Ppu* ppu, int line) {
     if(ppu->oam[index + 1] & 0x8000) row = spriteSize - 1 - row;
     // fetch all tiles in x-range
     for(int col = 0; col < spriteSize; col += 8) {
-      if(col + x > -8 - ext && col + x < 256 + ext) {
-        if(hwSprite && col + x > -8 && col + x < 256) {
-          // break if we found > 34 8*1 slivers already
-          tilesFound++;
-          if(tilesFound > 34) {
-            ppu->timeOver = true;
-            break;
-          }
+      if(hwSprite && col + x > -8 && col + x < 256) {
+        // break if we found > 34 8*1 slivers already
+        tilesFound++;
+        if(tilesFound > 34) {
+          ppu->timeOver = true;
+          break;
         }
+      }
+      if(hidden) continue;   // drawn in 3D instead (counted above like hardware)
+      if(col + drawX > -8 - ext && col + drawX < 256 + ext) {
         // figure out which tile this uses, looping within 16x16 pages, and get it's data
         int usedCol = hFlipped ? spriteSize - 1 - col : col;
         uint8_t usedTile = (((tile >> 4) + (row / 8)) << 4) | (((tile & 0xf) + (usedCol / 8)) & 0xf);
@@ -1008,7 +1069,7 @@ static void ppu_evaluateSprites(Ppu* ppu, int line) {
           pixel |= ((plane2 >> shift) & 1) << 2;
           pixel |= ((plane2 >> (8 + shift)) & 1) << 3;
           // draw it in the buffer if there is a pixel here
-          int screenCol = col + x + px;
+          int screenCol = col + drawX + px;
           if(pixel > 0 && screenCol >= -ext && screenCol < 256 + ext) {
             ppu->objWidePixel[screenCol + PPU_WIDE_MAX] = 0x80 + 16 * palette + pixel;
             ppu->objWidePriority[screenCol + PPU_WIDE_MAX] = (ppu->oam[index + 1] & 0x3000) >> 12;
