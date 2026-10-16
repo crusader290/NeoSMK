@@ -125,9 +125,11 @@ void neo_gameplay_spark_state(int player, int *stage, int *dir, int *boosting) {
 }
 
 void neo_gameplay_register_options(void) {
+    /* gameplay-changing options: netplay peers use the host's values */
+    snesrecomp_netplay_share(&s_miniturbo, (int)sizeof(s_miniturbo));
     menu_overlay_add_option("NeoSMK", "MK64 mini-turbo", "neo_miniturbo", &s_miniturbo, 1, NULL,
                             "Power-slide (hop with R), then flick the D-pad toward the\n"
                             "outside of the turn: yellow sparks, then orange after 3.\n"
-                            "Release on orange for a boost. Netplay: both players need\n"
-                            "the same setting.");
+                            "Release on orange for a boost. Netplay: the host's setting\n"
+                            "is used by both players.");
 }

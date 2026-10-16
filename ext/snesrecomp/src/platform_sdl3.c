@@ -4,6 +4,7 @@
  */
 
 #include "snesrecomp/platform.h"
+#include "snesrecomp/mp_session.h"
 #include "snesrecomp/menu_overlay.h"
 #include "snesrecomp/snesrecomp.h"
 #include "gfx/gl.h"
@@ -347,7 +348,8 @@ bool platform_poll_events(void) {
                 if (ev.key.key == SDLK_ESCAPE) return false;
                 /* Save-state hotkeys (mirror File -> Save / Load). */
                 if (ev.key.key == SDLK_F5) snesrecomp_save_state("smk_state.sav");
-                if (ev.key.key == SDLK_F8) snesrecomp_load_state("smk_state.sav");
+                if (ev.key.key == SDLK_F8 && (mp_get_state() == MP_IDLE || mp_get_state() == MP_DISCONNECTED))
+                    snesrecomp_load_state("smk_state.sav");   /* not during netplay */
                 if (ev.key.key == SDLK_F11 ||
                     (ev.key.key == SDLK_RETURN && (ev.key.mod & SDL_KMOD_ALT))) {
                     int m = menu_overlay_get_display_mode();

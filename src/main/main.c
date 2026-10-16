@@ -9,6 +9,7 @@
 #include <snesrecomp/snesrecomp.h>
 #include <snesrecomp/menu_overlay.h>
 #include <snesrecomp/mp_session.h>
+#include <SDL3/SDL_timer.h>
 #include "smk/functions.h"
 #include "neo/neo.h"
 
@@ -141,6 +142,10 @@ static void parse_script(void) {
  * of input — the SDL keyboard read in begin_frame is fully overridden so stray
  * window focus / keypresses can't perturb a deterministic run. */
 static int s_lock_input = 0;
+
+static int s_frame_no = 0;   /* frame counter seen by the input filter */
+static void apply_script(int frame);
+static void script_filter(void *user) { (void)user; apply_script(s_frame_no); }
 
 static void apply_script(int frame) {
     struct Snes *snes = snesrecomp_get_snes();
@@ -325,6 +330,7 @@ int main(int argc, char *argv[]) {
     }
 
     parse_script();
+    snesrecomp_set_input_filter(script_filter, NULL);
     s_lock_input = (getenv("SMK_SCRIPT") != NULL) || (getenv("SMK_HEADLESS") != NULL);
     int max_frames = 0;
     {
@@ -350,12 +356,15 @@ int main(int argc, char *argv[]) {
     bool running = true;
     while (running && snesrecomp_poll()) {
         int ticks = snesrecomp_ticks_due();
+        /* SMK_MP_WAIT=1 (testing): a host runs no frames until the peer joins */
+        if (getenv("SMK_MP_WAIT") && mp_get_state() == MP_HOSTING) { ticks = 0; SDL_Delay(5); }
         for (int tick = 0; tick < ticks && running; tick++) {
+            s_frame_no = frame_no;
             if (realframe) snesrecomp_realframe_begin();
             else           snesrecomp_begin_frame();
 
             /* Apply scripted input (after the input read; overrides keyboard). */
-            apply_script(frame_no);
+            if (!realframe) apply_script(frame_no);   /* real frames: script_filter */
 
             /* File-menu emulator controls (New=reset, Save/Load = save-state). */
             if (menu_overlay_take_reset()) {
@@ -527,6 +536,12 @@ int main(int argc, char *argv[]) {
                 mp_ls++;
                 if (mp_ls % 120 == 0)
                     printf("MP lockstep f%d: wram_csum=%08X\n", mp_ls, snesrecomp_wram_checksum());
+                static bool desync_reported = false;
+                if (mp_ls == 0) desync_reported = false;
+                if (!desync_reported && mp_desync_frame() >= 0) {
+                    printf("MP: %s\n", mp_status_text());
+                    desync_reported = true;
+                }
             }
 
             if (max_frames > 0 && frame_no >= max_frames) {

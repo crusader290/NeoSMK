@@ -154,6 +154,17 @@ void snesrecomp_set_sprite_front_palettes(uint8_t mask);
  * front), or NULL when the frame had none. */
 const uint8_t *snesrecomp_sprite_layer(int *cols, int *lines);
 
+/* Called every real frame after the local pads were read and before the
+ * netplay exchange: a scripted or replayed input source sets the local pads
+ * here (snes->input1/input2) so lockstep peers apply it on the same frame. */
+typedef void (*SnesInputFilter)(void *user);
+void snesrecomp_set_input_filter(SnesInputFilter fn, void *user);
+
+/* Netplay: a game-owned block of settings that affect gameplay (e.g. option
+ * values). On connect the host sends its copy and the client's is
+ * overwritten, so both peers simulate the same rules. NULL clears. */
+void snesrecomp_netplay_share(void *data, int size);
+
 /* One OAM entry as the PPU will draw it. */
 typedef struct {
     int  x, y;          /* x: -256..255 (9-bit, sign-extended); y: 0..255 */

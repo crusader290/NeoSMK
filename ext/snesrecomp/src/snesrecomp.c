@@ -714,6 +714,14 @@ void snesrecomp_end_frame(void) {
  * exchanges the local pad for the remote's and feeds the synchronized pair to
  * controllers 1 (host) and 2 (client). Lockstep keeps the two deterministic
  * emulations in sync. */
+static uint8_t *s_mp_share = NULL;
+static int      s_mp_share_size = 0;
+
+void snesrecomp_netplay_share(void *data, int size) {
+    s_mp_share = (uint8_t *)data;
+    s_mp_share_size = data ? size : 0;
+}
+
 static void snesrecomp_mp_update(void) {
     static bool synced = false;
     if (mp_get_state() != MP_CONNECTED) { synced = false; return; }
@@ -721,12 +729,29 @@ static void snesrecomp_mp_update(void) {
 
     if (!synced) {
         s_state_epoch++;   /* both peers restart from the shared state */
+        bool ok = true;
         if (mp_is_host()) {
-            uint8_t *buf = (uint8_t *)malloc(1 << 20);
-            if (buf) { int sz = snes_saveState(s_snes, buf); mp_send_blob(buf, sz); free(buf); }
+            int sz = snes_saveState(s_snes, NULL);
+            uint8_t *buf = (uint8_t *)malloc((size_t)sz);
+            ok = buf != NULL;
+            if (ok) { snes_saveState(s_snes, buf); ok = mp_send_blob(buf, sz); free(buf); }
+            /* the game's shared settings (gameplay options), host -> client */
+            if (ok) ok = mp_send_blob(s_mp_share, s_mp_share_size);
         } else {
             uint8_t *buf = NULL; int sz = 0;
-            if (mp_recv_blob(&buf, &sz)) { snes_loadState(s_snes, buf, sz); free(buf); }
+            ok = mp_recv_blob(&buf, &sz);
+            if (ok) { ok = snes_loadState(s_snes, buf, sz); free(buf); }
+            if (ok) {
+                uint8_t *opt = NULL; int osz = 0;
+                ok = mp_recv_blob_any(&opt, &osz);
+                if (ok && s_mp_share && osz == s_mp_share_size) memcpy(s_mp_share, opt, (size_t)osz);
+                free(opt);
+            }
+        }
+        if (!ok) {
+            mp_disconnect();
+            mp_set_status("Sync failed: both players need the same NeoSMK build and ROM");
+            return;
         }
         synced = true;
     }
@@ -735,14 +760,36 @@ static void snesrecomp_mp_update(void) {
      * port and take the remote's for the other. */
     uint16_t local = s_snes->input1->currentState;
     uint16_t p1 = 0, p2 = 0;
-    if (mp_exchange(local, &p1, &p2)) {
+    uint16_t sum = (mp_frame() % 30 == 0) ? (uint16_t)snesrecomp_wram_checksum() : 0;
+    if (mp_exchange(local, sum, &p1, &p2)) {
         s_snes->input1->currentState = p1;
         s_snes->input2->currentState = p2;
+        /* the auto-read registers ($4218-) may already hold this peer's own
+         * live pads (an input filter re-reads them): latch the synced pair */
+        snes_doAutoJoypad(s_snes);
+        /* SMK_MP_LOG=1: WRAM checksum every 60 lockstep frames (compare the
+         * two peers' logs to verify they stay in sync; mp_session also
+         * compares them in-band and reports a desync) */
+        static int n = 0;
+        n++;
+        if (getenv("SMK_MP_LOG") && ((n - 1) % 60) == 0)
+            printf("mp: frame %d wram %08X p1 %04X p2 %04X\n", n - 1, snesrecomp_wram_checksum(), p1, p2);
     }
+}
+
+static SnesInputFilter s_input_filter = NULL;
+static void           *s_input_filter_user = NULL;
+
+void snesrecomp_set_input_filter(SnesInputFilter fn, void *user) {
+    s_input_filter = fn;
+    s_input_filter_user = user;
 }
 
 bool snesrecomp_realframe_begin(void) {
     recomp_input_update();
+    /* scripted / replayed input replaces the local pads BEFORE the netplay
+     * exchange, so both peers apply it on the same frame */
+    if (s_input_filter) s_input_filter(s_input_filter_user);
     snesrecomp_mp_update();   /* lockstep input exchange when a session is active */
     return true;
 }

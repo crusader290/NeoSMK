@@ -52,12 +52,21 @@ int  mp_get_delay(void);
  * Call once after MP_CONNECTED, before the first mp_exchange. */
 bool mp_send_blob(const uint8_t *data, int size);
 bool mp_recv_blob(uint8_t **data, int *size);   /* allocates *data; caller frees */
+bool mp_recv_blob_any(uint8_t **data, int *size); /* zero-length allowed (*data = NULL) */
+void mp_set_status(const char *text);           /* override the status line */
 
 /* One frame of lockstep: send this peer's 16-bit pad, block for the remote
  * peer's, and return the synchronized controller pads (identical on both
  * peers): host -> *p1=local, *p2=remote; client -> *p1=remote, *p2=local.
- * Returns false on disconnect (state becomes MP_DISCONNECTED). */
-bool mp_exchange(uint16_t local, uint16_t *p1, uint16_t *p2);
+ * `state_sum` is a checksum of the emulated state before this frame runs;
+ * every 30th frame the peers compare theirs (mp_desync_frame). Returns false
+ * on disconnect (state becomes MP_DISCONNECTED). */
+bool mp_exchange(uint16_t local, uint16_t state_sum, uint16_t *p1, uint16_t *p2);
+
+/* First lockstep frame whose state checksums differed between the peers, or
+ * -1 while they agree; and the number of lockstep frames exchanged. */
+int  mp_desync_frame(void);
+int  mp_frame(void);
 
 #ifdef __cplusplus
 }

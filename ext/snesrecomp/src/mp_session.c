@@ -51,7 +51,12 @@ static uint16_t *s_remote_ring = NULL;
 static int      s_frame_ctr  = 0;   /* local exchange frame counter */
 static int      s_recv_count = 0;   /* remote inputs received (in order) */
 static int      s_delay      = 2;
-static uint8_t  s_rx[2];            /* partial-packet assembly */
+static uint8_t  s_rx[4];            /* partial-packet assembly: pad16, checksum16 */
+static uint16_t *s_local_sum  = NULL;   /* our state checksum at frame k (k % MP_SUM_EVERY == 0) */
+static uint16_t *s_remote_sum = NULL;
+static int      s_desync_frame = -1;    /* first frame the checksums differed, -1 = in sync */
+#define MP_PKT 4
+#define MP_SUM_EVERY 30
 static int      s_rxn        = 0;
 
 static void set_status(const char *s) { SDL_strlcpy(s_status, s, sizeof(s_status)); }
@@ -99,14 +104,28 @@ static bool was_wouldblock(void) {
 #endif
 }
 
+/* A complete remote packet: its pad, and its state checksum to compare with
+ * ours for the same frame (both peers checksum the state before applying a
+ * frame, so in sync they match). */
+static void got_packet(void) {
+    int k = s_recv_count;
+    s_remote_ring[k % MP_RING] = (uint16_t)(s_rx[0] | (s_rx[1] << 8));
+    uint16_t sum = (uint16_t)(s_rx[2] | (s_rx[3] << 8));
+    if (k % MP_SUM_EVERY == 0) {
+        s_remote_sum[(k / MP_SUM_EVERY) % MP_RING] = sum;
+    }
+    s_recv_count++;
+    s_rxn = 0;
+}
+
 /* Pull all currently-available remote input packets without blocking. */
 static bool mp_drain(void) {
     set_nonblock(s_peer, 1);
     for (;;) {
-        int n = (int)recv(s_peer, (char *)s_rx + s_rxn, 2 - s_rxn, 0);
+        int n = (int)recv(s_peer, (char *)s_rx + s_rxn, MP_PKT - s_rxn, 0);
         if (n > 0) {
             s_rxn += n;
-            if (s_rxn == 2) { s_remote_ring[s_recv_count % MP_RING] = (uint16_t)(s_rx[0] | (s_rx[1] << 8)); s_recv_count++; s_rxn = 0; }
+            if (s_rxn == MP_PKT) got_packet();
             continue;
         }
         if (n == 0) return false;          /* peer closed */
@@ -118,10 +137,10 @@ static bool mp_drain(void) {
 static bool mp_recv_until(int need) {
     set_nonblock(s_peer, 0);
     while (s_recv_count < need) {
-        int n = (int)recv(s_peer, (char *)s_rx + s_rxn, 2 - s_rxn, 0);
+        int n = (int)recv(s_peer, (char *)s_rx + s_rxn, MP_PKT - s_rxn, 0);
         if (n <= 0) return false;
         s_rxn += n;
-        if (s_rxn == 2) { s_remote_ring[s_recv_count % MP_RING] = (uint16_t)(s_rx[0] | (s_rx[1] << 8)); s_recv_count++; s_rxn = 0; }
+        if (s_rxn == MP_PKT) got_packet();
     }
     return true;
 }
@@ -168,6 +187,8 @@ void mp_init(void) {
     if (!once) { once = 1; s_state = MP_IDLE; s_cancel = 0; }
     if (!s_local_ring)  s_local_ring  = (uint16_t *)calloc(MP_RING, sizeof(uint16_t));
     if (!s_remote_ring) s_remote_ring = (uint16_t *)calloc(MP_RING, sizeof(uint16_t));
+    if (!s_local_sum)   s_local_sum   = (uint16_t *)calloc(MP_RING, sizeof(uint16_t));
+    if (!s_remote_sum)  s_remote_sum  = (uint16_t *)calloc(MP_RING, sizeof(uint16_t));
 #ifdef _WIN32
     if (!s_wsa_ready) {
         WSADATA w;
@@ -181,7 +202,7 @@ void mp_init(void) {
 bool mp_host(int port) {
     mp_init();
     mp_disconnect();
-    s_frame_ctr = 0; s_recv_count = 0; s_rxn = 0;
+    s_frame_ctr = 0; s_recv_count = 0; s_rxn = 0; s_desync_frame = -1;
     s_is_host = true;
     s_port = port;
     s_cancel = 0;
@@ -207,7 +228,7 @@ bool mp_host(int port) {
 bool mp_join(const char *ip, int port) {
     mp_init();
     mp_disconnect();
-    s_frame_ctr = 0; s_recv_count = 0; s_rxn = 0;
+    s_frame_ctr = 0; s_recv_count = 0; s_rxn = 0; s_desync_frame = -1;
     s_is_host = false;
     s_port = port;
     SDL_strlcpy(s_join_ip, ip ? ip : "127.0.0.1", sizeof(s_join_ip));
@@ -241,6 +262,25 @@ bool mp_send_blob(const uint8_t *data, int size) {
     return size == 0 ? true : send_all(s_peer, data, size);
 }
 
+/* Like mp_recv_blob, but a zero-length blob is allowed (*data = NULL). */
+bool mp_recv_blob_any(uint8_t **data, int *size) {
+    if (s_peer == SOCK_INVALID) return false;
+    set_nonblock(s_peer, 0);
+    uint8_t hdr[4];
+    if (!recv_all(s_peer, hdr, 4)) return false;
+    uint32_t len = hdr[0] | (hdr[1] << 8) | (hdr[2] << 16) | ((uint32_t)hdr[3] << 24);
+    *data = NULL; *size = 0;
+    if (len == 0) return true;
+    if (len > (16u << 20)) return false;
+    uint8_t *buf = (uint8_t *)malloc(len);
+    if (!buf) return false;
+    if (!recv_all(s_peer, buf, (int)len)) { free(buf); return false; }
+    *data = buf; *size = (int)len;
+    return true;
+}
+
+void mp_set_status(const char *text) { set_status(text); }
+
 bool mp_recv_blob(uint8_t **data, int *size) {
     if (s_peer == SOCK_INVALID) return false;
     set_nonblock(s_peer, 0);
@@ -255,18 +295,20 @@ bool mp_recv_blob(uint8_t **data, int *size) {
     return true;
 }
 
-bool mp_exchange(uint16_t local, uint16_t *p1, uint16_t *p2) {
+bool mp_exchange(uint16_t local, uint16_t state_sum, uint16_t *p1, uint16_t *p2) {
     if (s_peer == SOCK_INVALID) return false;
     int F = s_frame_ctr;
     s_local_ring[F % MP_RING] = local;
+    if (F % MP_SUM_EVERY == 0) s_local_sum[(F / MP_SUM_EVERY) % MP_RING] = state_sum;
 
     /* Send this frame's local input (it will be APPLIED at frame F+delay on both
      * peers). Then pull any arrived remote inputs without blocking, and only
      * block if the input we must apply this frame (index F-delay) hasn't landed
      * yet — i.e. only when the peer has fallen more than `delay` frames behind. */
     set_nonblock(s_peer, 0);
-    uint8_t out[2] = { (uint8_t)local, (uint8_t)(local >> 8) };
-    if (!send_all(s_peer, out, 2)) goto disc;
+    uint16_t sum = (F % MP_SUM_EVERY == 0) ? state_sum : 0;
+    uint8_t out[MP_PKT] = { (uint8_t)local, (uint8_t)(local >> 8), (uint8_t)sum, (uint8_t)(sum >> 8) };
+    if (!send_all(s_peer, out, MP_PKT)) goto disc;
     if (!mp_drain()) goto disc;
     if (F - s_delay >= 0 && !mp_recv_until(F - s_delay + 1)) goto disc;
 
@@ -276,6 +318,23 @@ bool mp_exchange(uint16_t local, uint16_t *p1, uint16_t *p2) {
         uint16_t ra = (F >= s_delay) ? s_remote_ring[(F - s_delay) % MP_RING] : 0;
         if (s_is_host) { *p1 = la; *p2 = ra; }
         else           { *p1 = ra; *p2 = la; }
+    }
+    /* compare checksums for every checked frame both sides have reached */
+    if (s_desync_frame < 0) {
+        int upto = s_recv_count < F + 1 ? s_recv_count : F + 1;
+        static int checked = 0;
+        if (F == 0) checked = 0;
+        while (checked < upto) {
+            if (checked % MP_SUM_EVERY == 0 &&
+                s_local_sum[(checked / MP_SUM_EVERY) % MP_RING] != s_remote_sum[(checked / MP_SUM_EVERY) % MP_RING]) {
+                s_desync_frame = checked;
+                char buf[96];
+                snprintf(buf, sizeof(buf), "DESYNC at frame %d (games differ; reconnect)", checked);
+                set_status(buf);
+                break;
+            }
+            checked++;
+        }
     }
     s_frame_ctr++;
     return true;
@@ -293,6 +352,8 @@ void mp_set_delay(int frames) {
     s_delay = frames;
 }
 int mp_get_delay(void) { return s_delay; }
+int mp_desync_frame(void) { return s_desync_frame; }
+int mp_frame(void) { return s_frame_ctr; }
 
 void mp_shutdown(void) {
     mp_disconnect();

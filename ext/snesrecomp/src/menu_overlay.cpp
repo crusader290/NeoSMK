@@ -533,7 +533,10 @@ static void draw_multiplayer_window(void) {
         } else {
             if (st == MP_HOSTING)    ImGui::TextDisabled("Waiting for a peer to connect...");
             if (st == MP_CONNECTING) ImGui::TextDisabled("Connecting...");
-            if (st == MP_CONNECTED)  ImGui::TextColored(ImVec4(0.4f,1,0.4f,1), "Connected — playing in sync.");
+            if (st == MP_CONNECTED && mp_desync_frame() < 0)
+                ImGui::TextColored(ImVec4(0.4f,1,0.4f,1), "Connected — playing in sync.");
+            if (st == MP_CONNECTED && mp_desync_frame() >= 0)
+                ImGui::TextColored(ImVec4(1,0.4f,0.3f,1), "Games out of sync — disconnect and reconnect.");
             ImGui::Spacing();
             if (ImGui::Button("Disconnect", ImVec2(-1, 0))) mp_disconnect();
         }
@@ -574,9 +577,13 @@ static void draw_menubar(void) {
     if (!ImGui::BeginMainMenuBar()) return;
     g.menubar_h = (int)(ImGui::GetWindowSize().y + 0.5f);
     if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New", "restart")) g.reset_req = true;
+        /* a reset / load on one peer would desync netplay */
+        bool in_session = mp_get_state() != MP_IDLE && mp_get_state() != MP_DISCONNECTED;
+        if (ImGui::MenuItem("New", "restart", false, !in_session)) g.reset_req = true;
         if (ImGui::MenuItem("Save", "F5"))     g.save_req  = true;
-        if (ImGui::MenuItem("Load", "F8"))     g.load_req  = true;
+        if (ImGui::MenuItem("Load", "F8", false, !in_session)) g.load_req  = true;
+        if (in_session && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Disconnect from netplay first.");
         ImGui::Separator();
         if (ImGui::BeginMenu("Settings")) {
             if (ImGui::MenuItem("Reset settings")) reset_defaults(g);
@@ -712,7 +719,10 @@ extern "C" void menu_overlay_render(void) {
 extern "C" int menu_overlay_is_active(void) {
     if (!g.enabled) return 0;
     ImGuiIO &io = ImGui::GetIO();
-    return (g.rebind_btn >= 0 || io.WantCaptureKeyboard || io.WantCaptureMouse) ? 1 : 0;
+    /* only while the menu needs the keyboard (typing, rebinding); a window
+     * merely open or under the mouse (e.g. Multiplayer while playing) must
+     * not take the pads away */
+    return (g.rebind_btn >= 0 || io.WantCaptureKeyboard || io.WantTextInput) ? 1 : 0;
 }
 extern "C" int   menu_overlay_get_menubar_height(void) { return (g.enabled && !g.hidden) ? g.menubar_h : 0; }
 extern "C" void  menu_overlay_get_bar_color(int *r, int *gg, int *b) {

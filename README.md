@@ -181,8 +181,19 @@ split.
 **Debug → 3D camera markers** floats a 3D marker over every racer. It checks the camera that
 NeoSMK reconstructs from Mode 7 and that its 3D objects use.
 
-**Multiplayer** is lockstep netplay over TCP (host = P1, client = P2), from upstream. Both
-players need the same NeoSMK settings.
+**Multiplayer** is lockstep netplay over TCP: the host is Player 1, the client Player 2.
+One player opens **Multiplayer → Host** (port 7878 by default; forward it on the router for
+internet play), the other enters the host's IP and picks **Join**. On connect, the host's game
+state and gameplay options (MK64 mini-turbo) are copied to the client. From then on both
+machines run the same game in sync; choose **2P GAME** in the game's menu. Both players need
+the same NeoSMK version and ROM. Graphics and other visual options can differ between them.
+
+- **Input delay** (host sets it, 2–3 frames for LAN, more over the internet) gives the network
+  slack before a frame has to wait for the other player.
+- **Sync check:** every 30 frames the peers compare a checksum of the game state; if they ever
+  differ, the Multiplayer window says the games are out of sync (reconnect to resync).
+- **Disabled while connected:** File → New and Load (F8), which would put the two games out of
+  sync. Save still works.
 
 ### Environment variables
 
@@ -194,6 +205,7 @@ players need the same NeoSMK settings.
 | `SMK_STATS=1` | log fps / logic rate / frame time every 120 frames |
 | `SMK_SCRIPT=…`, `SMK_MAX_FRAMES=N` | scripted input (`frame:BTN`, `a-b:BTN`) and auto-exit |
 | `SMK_SNAPSHOT_PREFIX`, `SMK_SNAPSHOT_EVERY` | WRAM/VRAM/CGRAM snapshots for diffing |
+| `SMK_MP_HOST=port`, `SMK_MP_JOIN=ip:port`, `SMK_MP_DELAY`, `SMK_MP_WAIT=1`, `SMK_MP_LOG=1` | netplay without the menu: host / join, input delay, host waits for the peer before running frames, log state checksums every 60 frames |
 | `SMK_SHOT_AT="frame:file.bmp,…"` | screenshot the frame presented after logic frame N |
 | `SMK_POKE16="frame:addr:value,…"` | write a WRAM word (hex) after logic frame N, for test setups like a cheat code |
 | `SMK_DUMP_M7=<prefix>` | per-scanline Mode-7 state every 60 frames (camera debugging) |
