@@ -149,6 +149,8 @@ static void draw_hud_in_place(const Scene3DFrame *f, const M7View *v) {
         if (!hf->box[cls].present) continue;
         scene3d_ui_hud(cls, hf->box[cls].x0 * sx, (hf->box[cls].y0 + off) * sy, 1.0f);
     }
+    if (hf->box[SNES_HUD_BG].present)
+        neo_items_draw_hud(hf->box[SNES_HUD_BG].x0 * sx, (hf->box[SNES_HUD_BG].y0 + off) * sy, sx, sy);
 }
 
 static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) {
@@ -161,8 +163,11 @@ static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) 
         draw_hud_in_place(f, v);
     } else {
         float wd, ht;
-        if (scene3d_ui_hud_size(SNES_HUD_BG, 1.0f, &wd, &ht))
+        if (scene3d_ui_hud_size(SNES_HUD_BG, 1.0f, &wd, &ht)) {
             scene3d_ui_hud(SNES_HUD_BG, tw - m - wd, m, 1.0f);
+            const SnesHudFrame *hf = snesrecomp_hud();
+            neo_items_draw_hud(tw - m - wd, m, tw / hf->cols, th / hf->lines);
+        }
         if (scene3d_ui_hud_size(SNES_HUD_OBJ, 1.25f, &wd, &ht))
             scene3d_ui_hud(SNES_HUD_OBJ, m, th - m - ht, 1.25f);
         /* Position numeral. SMK zooms it briefly when the place changes and

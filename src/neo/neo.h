@@ -95,6 +95,13 @@ void neo_pipes_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w);
  * their last captured sprite. */
 void neo_karts_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w);
 
+/* MK64 item variants (gameplay, player 1): once per logic tick. */
+void neo_items_tick(bool enabled, int frame);
+/* Draw the item box picture (when NeoSMK refilled the item) and the uses
+ * left, given where the HUD BG box (timer + item box) lands: its top-left in
+ * target px and the size of one HUD pixel. Inside a scene3d_ui block. */
+void neo_items_draw_hud(float x, float y, float px_w, float px_h);
+
 /* Install the 3D overlay hook. Call after snesrecomp_init. */
 void neo_install(void);
 

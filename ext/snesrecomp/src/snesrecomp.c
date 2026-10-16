@@ -211,6 +211,12 @@ void snesrecomp_set_hud_config(const SnesHudConfig *cfg) {
 
 const SnesHudFrame *snesrecomp_hud(void) { return &s_hud; }
 
+const uint8_t *snesrecomp_hud_pixels(int *cols, int *lines) {
+    if (cols) *cols = s_hud.valid ? s_hud.cols : 0;
+    if (lines) *lines = s_hud.valid ? s_hud.lines : 0;
+    return s_hud.valid ? s_hud_buf : NULL;
+}
+
 /* Before a frame: separate the HUD only while presenting full-screen (the
  * previous frame's decision; the first full-screen frame keeps it in place). */
 static void apply_hud(void) {

@@ -97,6 +97,10 @@ bool scene3d_ui_hud_size(int cls, float scale, float *w, float *h);
 /* Draw that box with its top-left at (x, y). Colour-math pixels blend the
  * way the SNES applied them (add / subtract / half). */
 void scene3d_ui_hud(int cls, float x, float y, float scale);
+/* RGBA texture (scene3d_tex_rgba) drawn at (x, y, w, h); uv0..uv1 picks the
+ * sub-rect, alpha blends (0 = transparent). `tint` multiplies (NULL = white). */
+void scene3d_ui_image(const Scene3DTex *t, float x, float y, float w, float h,
+                      const float uv0[2], const float uv1[2], const float tint[4]);
 void scene3d_ui_end(void);
 
 /* Matrix helpers. */

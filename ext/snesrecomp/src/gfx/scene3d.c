@@ -132,6 +132,12 @@ static const char *kUiFS =
     "        o_color = vec4((a & 15) == u_class ? t.rgb : u_edge.rgb, u_fill.a);\n"
     "        return;\n"
     "    }\n"
+    "    if (u_mode == 3) {\n"
+    "        vec4 t = texture(u_mask, v_uv);\n"
+    "        if (t.a <= 0.0) discard;\n"
+    "        o_color = t * u_fill;\n"
+    "        return;\n"
+    "    }\n"
     "    if (u_mode == 0) {\n"
     "        float m = texture(u_mask, v_uv).r;\n"
     "        float inside = smoothstep(0.42, 0.58, m);\n"
@@ -614,6 +620,21 @@ void scene3d_ui_hud(int cls, float x, float y, float scale) {
     ui_quad(x, y, w, h);
     glBlendEquation(GL_FUNC_ADD);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+void scene3d_ui_image(const Scene3DTex *t, float x, float y, float w, float h,
+                      const float uv0[2], const float uv1[2], const float tint[4]) {
+    if (!t) return;
+    static const float white[4] = { 1, 1, 1, 1 };
+    const float *c = tint ? tint : white;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, t->tex);
+    glUniform1i(U.u_mode, 3);
+    glUniform4f(U.u_fill, c[0], c[1], c[2], c[3]);
+    glUniform4f(U.u_uv, (uv0[0] + uv1[0]) * 0.5f, (uv0[1] + uv1[1]) * 0.5f,
+                (uv0[0] + uv1[0]) * 0.5f + (uv1[0] - uv0[0]) * 0.5f,
+                (uv0[1] + uv1[1]) * 0.5f + (uv1[1] - uv0[1]) * 0.5f);
+    ui_quad(x, y, w, h);
 }
 
 void scene3d_ui_end(void) {

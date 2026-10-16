@@ -141,6 +141,11 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
 - **MK64 mini-turbo**, on by default. Power-slide (hop with R while steering), then flick
   the D-pad toward the *outside* of the turn: one flick gives yellow sparks, three give orange.
   Release R on orange for a short boost.
+- **MK64 items**, on by default. Item boxes can also give Mario Kart 64's variants: a triple
+  mushroom (3 boosts), a golden mushroom (boost as often as you like for 7.5 s), triple green
+  or red shells, and a banana bunch (5 bananas). Dots under the item box show the uses left.
+  Getting hit loses the rest. Player 1 only for now. Gameplay change; netplay uses the host's
+  setting.
 - **MK8-style HUD**, on by default. In full-screen races the HUD moves to the corners: timer
   and lap top-right, lives and coins bottom-left, a big position number bottom-right. The game's
   HUD is separated from the picture by the PPU (see `docs/roadmap_mk64.md`), so what was behind

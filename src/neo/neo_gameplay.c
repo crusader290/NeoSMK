@@ -18,7 +18,9 @@
 #include <string.h>
 
 /* ---- options ---- */
-static int s_miniturbo = 1;
+/* gameplay options, shared with netplay peers as one block (host's values) */
+static struct { int miniturbo; int items; } s_opt = { 1, 1 };
+#define s_miniturbo s_opt.miniturbo
 
 /* ---- Mario Kart 64 mini-turbo ----
  * While power-sliding (hop + R), flick the D-pad toward the outside of the
@@ -105,6 +107,7 @@ void neo_tick(void) {
     neo_track_update(bus_wram_read16(SMK_RAM_GAME_STATE) == 0x0002);   /* presentation */
     if (bus_wram_read16(SMK_RAM_GAME_STATE) != 0x0002) {   /* not racing */
         memset(s_mt, 0, sizeof(s_mt));
+        neo_items_tick(false, s_frame);
         return;
     }
     for (int p = 0; p < 2; p++) {
@@ -115,6 +118,7 @@ void neo_tick(void) {
         }
         if (s_miniturbo) mini_turbo(p, rec);
     }
+    neo_items_tick(s_opt.items != 0, s_frame);
 }
 
 void neo_gameplay_spark_state(int player, int *stage, int *dir, int *boosting) {
@@ -126,10 +130,15 @@ void neo_gameplay_spark_state(int player, int *stage, int *dir, int *boosting) {
 
 void neo_gameplay_register_options(void) {
     /* gameplay-changing options: netplay peers use the host's values */
-    snesrecomp_netplay_share(&s_miniturbo, (int)sizeof(s_miniturbo));
+    snesrecomp_netplay_share(&s_opt, (int)sizeof(s_opt));
     menu_overlay_add_option("NeoSMK", "MK64 mini-turbo", "neo_miniturbo", &s_miniturbo, 1, NULL,
                             "Power-slide (hop with R), then flick the D-pad toward the\n"
                             "outside of the turn: yellow sparks, then orange after 3.\n"
                             "Release on orange for a boost. Netplay: the host's setting\n"
                             "is used by both players.");
+    menu_overlay_add_option("NeoSMK", "MK64 items", "neo_items", &s_opt.items, 1, NULL,
+                            "Mario Kart 64 item variants: triple mushrooms, golden\n"
+                            "mushroom, triple green / red shells and banana bunches come\n"
+                            "out of SMK's item boxes too (player 1). Gameplay change;\n"
+                            "netplay uses the host's setting.");
 }

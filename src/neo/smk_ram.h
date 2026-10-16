@@ -20,6 +20,17 @@
 #define SMK_TILE_ROAD           0x40   /* plain road; used panels become this */
 #define SMK_TILE_BARRIER        0x80   /* wall / barrier block ($F0-$F3 on Mario Circuit) */
 
+/* Player 1's item box: item id (0 mushroom, 1 feather, 2 star, 3 banana,
+ * 4 green shell, 5 red shell, 7 coin, 8 lightning), box state ($A0 roulette
+ * spinning, $80 settled, $C0 ready to use, $00 empty) and the box graphic. */
+#define SMK_RAM_P1_ITEM         0x0D70
+#define SMK_RAM_P1_ITEM_STATE   0x0D71
+#define SMK_ITEM_READY          0xC0
+#define SMK_ITEM_MUSHROOM       0
+#define SMK_ITEM_BANANA         3
+#define SMK_ITEM_GREEN_SHELL    4
+#define SMK_ITEM_RED_SHELL      5
+
 /* Racer records: 8 x $100 bytes. Record 0 is player 1. */
 #define SMK_RAM_RACERS          0x1000
 #define SMK_RACER_STRIDE        0x0100

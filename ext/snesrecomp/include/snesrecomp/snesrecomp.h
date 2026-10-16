@@ -131,6 +131,9 @@ typedef struct {
 
 void snesrecomp_set_hud_config(const SnesHudConfig *cfg);   /* NULL = off */
 const SnesHudFrame *snesrecomp_hud(void);
+/* The separated HUD layer of the last frame (cols x lines RGBA; alpha low
+ * nibble = class), or NULL when the frame had none. */
+const uint8_t *snesrecomp_hud_pixels(int *cols, int *lines);
 
 /* Mode-7 tile override (presentation only): on the racing (chase) bands, map
  * cell i (ty * 128 + tx) shows tile cells[i] instead of the tilemap's, unless
