@@ -54,6 +54,7 @@ struct MenuState {
     int  show_fps   = 0;
     int  aspect     = SNESRECOMP_ASPECT_16_9;
     int  wide_menus = 0;   /* widen non-Mode-7 screens too */
+    int  fullscreen_m7 = 1;
 
     /* Sound */
     float volume = 1.0f;
@@ -288,7 +289,7 @@ static void set_default_binds(MenuState &m) { set_default_keys(m); set_default_p
 static void reset_defaults(MenuState &m) {
     m.resolution = PLATFORM_RES_720P; m.display = PLATFORM_WINDOWED;
     m.vsync = 1; m.filter = SMK_FILTER_SHARP; m.fxaa = 0; m.scanlines = 0; m.show_fps = 0;
-    m.aspect = SNESRECOMP_ASPECT_16_9; m.wide_menus = 0;
+    m.aspect = SNESRECOMP_ASPECT_16_9; m.wide_menus = 0; m.fullscreen_m7 = 1;
     m.volume = 1.0f; m.mute = false;
     set_default_binds(m);
 }
@@ -308,6 +309,7 @@ static void config_save(void) {
     fprintf(f, "show_fps=%d\n",   g.show_fps);
     fprintf(f, "aspect=%d\n",     g.aspect);
     fprintf(f, "wide_menus=%d\n", g.wide_menus);
+    fprintf(f, "fullscreen_m7=%d\n", g.fullscreen_m7);
     fprintf(f, "menu_hidden=%d\n", g.hidden ? 1 : 0);
     for (int i = 0; i < g_nopts; i++) fprintf(f, "%s=%d\n", g_opts[i].key, *g_opts[i].value);
     fprintf(f, "volume=%d\n",     (int)(g.volume * 100.0f + 0.5f));
@@ -349,6 +351,7 @@ static void config_load(void) {
         else if (!strcmp(keybuf, "show_fps"))    g.show_fps = val ? 1 : 0;
         else if (!strcmp(keybuf, "aspect"))      g.aspect = clampi(val, 0, 2);
         else if (!strcmp(keybuf, "wide_menus"))  g.wide_menus = val ? 1 : 0;
+        else if (!strcmp(keybuf, "fullscreen_m7")) g.fullscreen_m7 = val ? 1 : 0;
         else if (!strcmp(keybuf, "menu_hidden")) g.hidden = val != 0;
         else if (!strcmp(keybuf, "volume"))      g.volume = clampi(val, 0, 100) / 100.0f;
         else if (!strcmp(keybuf, "mute"))        g.mute = val != 0;
@@ -609,6 +612,11 @@ static void draw_menubar(void) {
                                   "real content, so widening them shows wrapped tiles.");
             ImGui::EndMenu();
         }
+        menu_toggle("Full-screen 1P races", NULL, &g.fullscreen_m7);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Single-player races fill the screen: the race view is\n"
+                              "extended with GPU-rendered track below and sky above,\n"
+                              "replacing the split-screen map.");
         menu_toggle("V-Sync", NULL, &g.vsync);
         if (ImGui::BeginMenu("Upscale filter")) {
             if (ImGui::MenuItem("Nearest",        NULL, g.filter == SMK_FILTER_NEAREST)) g.filter = SMK_FILTER_NEAREST;
@@ -726,6 +734,7 @@ extern "C" void  menu_overlay_set_display_mode(int m){ g.display = clampi(m, 0, 
 extern "C" int   menu_overlay_get_vsync(void)      { return g.vsync; }
 extern "C" int   menu_overlay_get_aspect(void)     { return g.aspect; }
 extern "C" int   menu_overlay_get_wide_menus(void) { return g.wide_menus; }
+extern "C" int   menu_overlay_get_fullscreen_m7(void) { return g.fullscreen_m7; }
 extern "C" int   menu_overlay_get_filter(void)     { return g.filter; }
 extern "C" int   menu_overlay_get_fxaa(void)       { return g.fxaa; }
 extern "C" int   menu_overlay_get_scanlines(void)  { return g.scanlines; }

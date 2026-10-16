@@ -28,6 +28,7 @@ void  menu_overlay_set_display_mode(int mode) { s_mode = mode; }
 int   menu_overlay_get_vsync(void) { return 1; }
 int   menu_overlay_get_aspect(void) { return 2; }   /* SNESRECOMP_ASPECT_16_9 */
 int   menu_overlay_get_wide_menus(void) { return 0; }
+int   menu_overlay_get_fullscreen_m7(void) { return 1; }
 int   menu_overlay_get_filter(void) { return 2; }   /* SMK_FILTER_SHARP */
 int   menu_overlay_get_fxaa(void) { return 0; }
 int   menu_overlay_get_scanlines(void) { return 0; }

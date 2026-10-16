@@ -9,6 +9,7 @@
 #include "snesrecomp/mp_session.h"
 #include "snesrecomp/menu_overlay.h"
 #include "m7view_internal.h"
+#include "gfx/renderer.h"
 #include "snes.h"
 #include "ppu.h"
 #include "input.h"
@@ -192,17 +193,137 @@ static void apply_widescreen(void) {
 
 /* Hand the finished frame to the platform: the 256-wide 2x buffer, or the
  * widened single-height buffer when widescreen is on. */
+/* Full-screen 1-player layout: decided per frame from the solved bands. */
+static RendererM7Frame s_m7frame;
+
+/* XBGR pixel (as 0..1 RGB) of column x, scanline `line`, in the submitted frame. */
+static void frame_pixel(const uint8_t *pix, int width, int row0, int rows_per_line,
+                        int x, int line, float rgb[3]) {
+    const uint8_t *p = pix + ((size_t)(row0 + (line - 1) * rows_per_line) * width + (size_t)x * 2 + 1) * 4;
+    rgb[0] = p[3] / 255.0f; rgb[1] = p[2] / 255.0f; rgb[2] = p[1] / 255.0f;
+}
+
+static void decide_layout(const uint8_t *pix, int width, int row0, int rows_per_line) {
+    M7View *v = &s_view;
+    v->layout = M7_LAYOUT_NATIVE;
+    v->line_offset = 0;
+    v->top_skip = 0;
+    if (!menu_overlay_get_fullscreen_m7() || v->nbands == 0) return;
+
+    /* one perspective band at the top (1-player), nothing else in perspective */
+    const M7Band *top = &v->band[0];
+    if (!top->chase || top->line0 > 48 || top->rms_line > 2.5f) return;
+    for (int i = 1; i < v->nbands; i++) if (v->band[i].chase) return;   /* 2-player */
+    if (top->line1 > v->lines * 2 / 3) return;   /* already fills the screen */
+
+    /* drop blank (black) lines the game draws above the band (checked over
+     * the original 256 columns: widescreen extensions aren't blank) */
+    int cols = width / 2;
+    int ext = (cols - 256) / 2;
+    int skip = 0;
+    for (int line = 1; line <= 8; line++) {
+        bool black = true;
+        for (int x = ext; x < ext + 256 && black; x += 4) {
+            float c[3];
+            frame_pixel(pix, width, row0, rows_per_line, x, line, c);
+            if (c[0] + c[1] + c[2] > 0.03f) black = false;
+        }
+        if (!black) break;
+        skip++;
+    }
+
+    /* horizon at ~30% of the screen, at least 40 lines of floor under the band */
+    int shift = (int)(0.30f * v->lines - top->horizon + 0.5f);
+    if (shift > v->lines - 40 - top->line1) shift = v->lines - 40 - top->line1;
+    if (shift < 0) shift = 0;
+
+    /* sky: most common colour of the band's first visible line */
+    float best[3] = { 0, 0, 0 };
+    int best_n = 0;
+    for (int x = 0; x < cols; x += 2) {
+        float c[3], d[3];
+        frame_pixel(pix, width, row0, rows_per_line, x, skip + 1, c);
+        int n = 0;
+        for (int y = 0; y < cols; y += 2) {
+            frame_pixel(pix, width, row0, rows_per_line, y, skip + 1, d);
+            if (d[0] == c[0] && d[1] == c[1] && d[2] == c[2]) n++;
+        }
+        if (n > best_n) { best_n = n; best[0] = c[0]; best[1] = c[1]; best[2] = c[2]; }
+    }
+
+    v->layout = M7_LAYOUT_FULLSCREEN;
+    v->line_offset = shift;
+    v->top_skip = skip;
+    v->sky[0] = best[0]; v->sky[1] = best[1]; v->sky[2] = best[2];
+    for (int i = 0; i < v->nbands; i++) {      /* only the race band is presented */
+        v->band[i].draw_line0 = 1;
+        v->band[i].draw_line1 = 0;
+    }
+    v->band[0].draw_line0 = top->line0 + shift;
+    v->band[0].draw_line1 = v->lines;
+
+    /* floor data for the GPU ground */
+    RendererM7Frame *m = &s_m7frame;
+    Ppu *ppu = s_snes->ppu;
+    m->cols = v->cols;
+    m->lines = v->lines;
+    m->line_offset = shift;
+    m->band_first = skip + 1;
+    m->band_last = top->line1;
+    m->sky[0] = best[0]; m->sky[1] = best[1]; m->sky[2] = best[2];
+    m->cam[0] = top->cam[0];     m->cam[1] = top->cam[1];
+    m->fwd[0] = top->fwd[0];     m->fwd[1] = top->fwd[1];
+    m->right[0] = top->right[0]; m->right[1] = top->right[1];
+    m->focal = top->focal;
+    m->height = top->height;
+    m->horizon = top->horizon;
+    m->outside = !ppu->m7largeField ? 0 : (ppu->m7charFill ? 2 : 1);
+    for (int i = 0; i < 128 * 128; i++) m->tilemap[i] = (uint8_t)(ppu->vram[i] & 0xFF);
+    for (int t = 0; t < 256; t++)
+        for (int py = 0; py < 8; py++)
+            for (int px = 0; px < 8; px++)
+                m->chars[((t >> 4) * 8 + py) * 128 + (t & 15) * 8 + px] =
+                    (uint8_t)(ppu->vram[(t * 64 + py * 8 + px) & 0x7FFF] >> 8);
+    /* brightness the band was drawn with (at submit time the game may be in
+     * forced blank for its vblank DMA) */
+    int bright = ppu_getM7Lines(ppu)[(top->line0 + top->line1) / 2 - 1].brightness;
+    for (int i = 0; i < 256; i++) {
+        uint16_t c = ppu->cgram[i];
+        int r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
+        m->palette[i * 4 + 0] = (uint8_t)(((r << 3) | (r >> 2)) * bright / 15);
+        m->palette[i * 4 + 1] = (uint8_t)(((g << 3) | (g >> 2)) * bright / 15);
+        m->palette[i * 4 + 2] = (uint8_t)(((b << 3) | (b >> 2)) * bright / 15);
+        m->palette[i * 4 + 3] = 255;
+    }
+}
+
 static void submit_video(void) {
     m7view_solve(&s_view, ppu_getM7Lines(s_snes->ppu), 256 + 2 * s_snes->ppu->wideExt,
                  s_snes->ppu->frameOverscan ? 239 : 224);
+    const uint8_t *pix;
+    int width, row0, rows, rows_per_line;
     if (s_snes->ppu->wideExt > 0) {
-        int rows = ppu_putPixelsWide(s_snes->ppu, s_wide_buf);
-        platform_submit_frame(s_wide_buf, (256 + 2 * s_snes->ppu->wideExt) * 2, 0, rows);
+        rows = ppu_putPixelsWide(s_snes->ppu, s_wide_buf);
+        pix = s_wide_buf;
+        width = (256 + 2 * s_snes->ppu->wideExt) * 2;
+        row0 = 0;
+        rows_per_line = 1;
     } else {
-        int rx, ry, rw, rh;
-        snesrecomp_active_video_rect(&rx, &ry, &rw, &rh);
-        platform_submit_frame(s_pixel_buf, SNES_RENDER_WIDTH, ry, rh);
+        int rx, ry, rw;
+        snesrecomp_active_video_rect(&rx, &ry, &rw, &rows);
+        pix = s_pixel_buf;
+        width = SNES_RENDER_WIDTH;
+        row0 = ry;
+        rows_per_line = 2;
     }
+    decide_layout(pix, width, row0, rows_per_line);
+    static int last_layout = -1;
+    if (s_view.layout != last_layout) {
+        printf("snesrecomp: layout -> %s\n", s_view.layout == M7_LAYOUT_FULLSCREEN ? "full-screen" : "native");
+        last_layout = s_view.layout;
+    }
+    renderer_set_m7_frame(s_view.layout == M7_LAYOUT_FULLSCREEN ? &s_m7frame : NULL);
+    platform_submit_frame(pix, width, row0, rows);
 }
 
 const M7View *snesrecomp_m7_view(void) {

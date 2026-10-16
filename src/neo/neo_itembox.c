@@ -73,7 +73,7 @@ void neo_itembox_draw(const Scene3DFrame *f, const M7View *v, float time_s) {
 
     for (int bi = 0; bi < v->nbands; bi++) {
         const M7Band *b = &v->band[bi];
-        if (!b->perspective) continue;
+        if (!b->chase) continue;
 
         /* visible panels, far to near (the shells are translucent) */
         Panel vis[MAX_PANELS];
@@ -93,7 +93,9 @@ void neo_itembox_draw(const Scene3DFrame *f, const M7View *v, float time_s) {
 
         float clip[16];
         m7view_clip_matrix(v, b, NEAR_Z, FAR_Z, clip);
-        scene3d_clip_lines(f, b->line0, b->line1);
+        int l0, l1;
+        if (!neo_band_lines(v, b, 0, &l0, &l1)) continue;
+        scene3d_clip_lines(f, l0, l1);
         scene3d_begin(clip, light);
         for (int i = 0; i < nvis; i++)
             scene3d_blob_shadow(vis[i].x, vis[i].y, BOX_SIZE * 0.8f, 0.5f);

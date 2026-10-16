@@ -141,8 +141,18 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
 - **MK64 mini-turbo**, on by default. Power-slide (hop with R while steering), then flick
   the D-pad toward the *outside* of the turn: one flick gives yellow sparks, three give orange.
   Release R on orange for a short boost.
+- **Circuit map**, on by default. In full-screen races (see below), a Mario Kart 8-style
+  circuit outline in the bottom-right, with a dot per racer in its character's colour (player 1
+  ringed in white).
 - **3D item boxes**, on by default. Spinning, translucent Mario Kart 64-style boxes with blob
   shadows float over the "?" panels; a box disappears once its panel is used.
+
+**Graphics → Full-screen 1P races** (on by default) makes single-player races fill the screen
+instead of using the top half. The game's race view is shifted down (horizon at ~30% of the
+screen), and the track below it is rendered on the GPU straight from the Mode-7 tilemap through
+the reconstructed camera, so the perspective continues seamlessly. Sky fills the top, and the
+split-screen overview map is replaced by the circuit map. Two-player races keep the native
+split.
 
 **Debug → 3D camera markers** floats a 3D marker over every racer. It checks the camera that
 NeoSMK reconstructs from Mode 7 and that its 3D objects use.

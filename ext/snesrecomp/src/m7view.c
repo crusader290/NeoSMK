@@ -39,6 +39,7 @@ static void solve_band(const Sample *sm, int n, M7Band *b) {
         if (sm[i].s > smax) smax = sm[i].s;
     }
     b->perspective = false;
+    b->chase = false;
     if (n < MIN_BAND_LINES || smin <= 0 || smax / smin < 1.25) return;   /* flat / overhead */
 
     double u[240], v[240], w[240], vx[240], vy[240];
@@ -74,6 +75,7 @@ static void solve_band(const Sample *sm, int n, M7Band *b) {
         ec += (ex * ex + ey * ey) / (sm[i].s * sm[i].s);
     }
     b->perspective = true;
+    b->chase = yh >= sm[0].y - 12.0 && yh <= sm[0].y + 6.0;
     b->cam[0] = (float)ox;   b->cam[1] = (float)oy;
     b->height = (float)H;
     b->fwd[0] = (float)fx;   b->fwd[1] = (float)fy;
@@ -111,13 +113,15 @@ void m7view_solve(M7View *v, const PpuM7Line *lines, int cols, int nlines) {
         M7Band *b = &v->band[v->nbands++];
         b->line0 = start + 1;
         b->line1 = start + n;
+        b->draw_line0 = b->line0;
+        b->draw_line1 = b->line1;
         solve_band(sm, n, b);
     }
 }
 
 const M7Band *m7view_band_at(const M7View *v, int line) {
     for (int i = 0; i < v->nbands; i++)
-        if (v->band[i].perspective && line >= v->band[i].line0 && line <= v->band[i].line1)
+        if (v->band[i].chase && line >= v->band[i].line0 && line <= v->band[i].line1)
             return &v->band[i];
     return NULL;
 }
@@ -140,7 +144,7 @@ void m7view_clip_matrix(const M7View *v, const M7Band *b, float near_z, float fa
     /* clip_x = depth/cols + (2f/cols) lat */
     double kx = 2.0 * f / cols, dx = 1.0 / cols;
     /* clip_y = depth (1 - 2(y_h - 0.5)/lines) + (2f/lines)(z - H) */
-    double k1 = 1.0 - 2.0 * (b->horizon - 0.5) / lines, k2 = 2.0 * f / lines;
+    double k1 = 1.0 - 2.0 * (b->horizon + v->line_offset - 0.5) / lines, k2 = 2.0 * f / lines;
     /* clip_z = a depth - c */
     double a = (far_z + near_z) / (far_z - near_z), c = 2.0 * far_z * near_z / (far_z - near_z);
     double row[4][4] = {
@@ -162,6 +166,6 @@ bool m7view_project(const M7View *v, const M7Band *b, float x, float y, float z,
     double lat = px * b->right[0] + py * b->right[1];
     int ext = (v->cols - 256) / 2;
     if (col)  *col  = (float)(128.5 + ext + b->focal * lat / depth);
-    if (line) *line = (float)(b->horizon - 0.5 + b->focal * (b->height - z) / depth);
+    if (line) *line = (float)(b->horizon + v->line_offset - 0.5 + b->focal * (b->height - z) / depth);
     return true;
 }

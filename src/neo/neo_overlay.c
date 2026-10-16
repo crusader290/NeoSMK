@@ -20,14 +20,8 @@
 /* options (persisted in smk_config.ini) */
 static int s_markers = 0;
 static int s_itemboxes = 1;
+static int s_minimap = 1;
 
-/* per-character marker colours: Mario, Luigi, Bowser, Peach, DK Jr, Koopa,
- * Toad, Yoshi (SMK's character order, id * 2 in the racer record) */
-static const float kCharColor[8][3] = {
-    { 0.90f, 0.15f, 0.15f }, { 0.20f, 0.75f, 0.25f }, { 0.95f, 0.60f, 0.10f },
-    { 1.00f, 0.55f, 0.75f }, { 0.55f, 0.35f, 0.20f }, { 0.30f, 0.65f, 0.95f },
-    { 0.95f, 0.95f, 0.95f }, { 0.55f, 0.95f, 0.40f },
-};
 
 static Scene3DMesh *s_pyramid = NULL;
 static Scene3DMesh *s_spark = NULL;
@@ -40,15 +34,17 @@ static void draw_markers(const Scene3DFrame *f, const M7View *v, const NeoWorld 
     static const float light[3] = { 0.35f, 0.55f, -1.0f };
     for (int bi = 0; bi < v->nbands; bi++) {
         const M7Band *b = &v->band[bi];
-        if (!b->perspective) continue;
+        if (!b->chase) continue;
         float clip[16];
         m7view_clip_matrix(v, b, NEAR_Z, FAR_Z, clip);
-        scene3d_clip_lines(f, b->line0, b->line1 + 8);   /* karts overhang the band a little */
+        int l0, l1;
+        if (!neo_band_lines(v, b, 8, &l0, &l1)) continue;   /* karts overhang the band a little */
+        scene3d_clip_lines(f, l0, l1);
         scene3d_begin(clip, light);
         for (int i = 0; i < SMK_RACER_COUNT; i++) {
             const NeoRacer *r = &w->racer[i];
             float model[16];
-            const float *c = kCharColor[r->character];
+            const float *c = neo_char_color[r->character];
             float tint[4] = { c[0], c[1], c[2], 1.0f };
             /* hovering marker, turned to the racer's heading */
             scene3d_mat_trs(model, r->x, r->y, 9.0f, -r->heading, 3.0f, 3.0f, 5.0f);
@@ -78,7 +74,7 @@ static void draw_player_fx(const Scene3DFrame *f, const M7View *v, const NeoWorl
     int band_for_player = 0;
     for (int bi = 0; bi < v->nbands && band_for_player < 2; bi++) {
         const M7Band *b = &v->band[bi];
-        if (!b->perspective) continue;
+        if (!b->chase) continue;
         int p = band_for_player++;
         int stage = 0, dir = 0, boosting = 0;
         neo_gameplay_spark_state(p, &stage, &dir, &boosting);
@@ -88,7 +84,9 @@ static void draw_player_fx(const Scene3DFrame *f, const M7View *v, const NeoWorl
         float rx = cosf(r->heading), ry = sinf(r->heading);    /* kart right */
         float clip[16];
         m7view_clip_matrix(v, b, NEAR_Z, FAR_Z, clip);
-        scene3d_clip_lines(f, b->line0, b->line1 + 12);
+        int l0, l1;
+        if (!neo_band_lines(v, b, 12, &l0, &l1)) continue;
+        scene3d_clip_lines(f, l0, l1);
         scene3d_begin(clip, light);
         for (int side = -1; side <= 1; side += 2) {
             float wx = r->x - fx * 2.6f + rx * 2.3f * side;
@@ -132,6 +130,7 @@ static void neo_scene(const Scene3DFrame *f, void *user) {
     if (s_itemboxes) neo_itembox_draw(f, v, frames / 60.0f);
     draw_player_fx(f, v, &w);
     if (s_markers) draw_markers(f, v, &w);
+    if (s_minimap) neo_minimap_draw(f, v, &w);
 }
 
 void neo_register_options(void) {
@@ -139,6 +138,10 @@ void neo_register_options(void) {
     menu_overlay_add_option("NeoSMK", "3D item boxes", "neo_itemboxes", &s_itemboxes, 1, NULL,
                             "Spinning Mario Kart 64-style boxes over the \"?\" panels\n"
                             "(visual only; a box disappears once its panel is used).");
+    menu_overlay_add_option("NeoSMK", "Circuit map (full-screen)", "neo_minimap", &s_minimap, 1, NULL,
+                            "Mario Kart 8-style circuit map with racer positions in the\n"
+                            "bottom right of full-screen single-player races\n"
+                            "(Graphics -> Full-screen 1P races).");
     menu_overlay_add_option("Debug", "3D camera markers", "neo_debug_markers", &s_markers,
                             1, NULL,
                             "Float a 3D marker over every racer using the camera\n"

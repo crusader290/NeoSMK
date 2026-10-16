@@ -65,6 +65,7 @@ void  menu_overlay_set_display_mode(int mode);
 int   menu_overlay_get_vsync(void);
 int   menu_overlay_get_aspect(void);        /* SNESRECOMP_ASPECT_* (4:3, 16:10, 16:9) */
 int   menu_overlay_get_wide_menus(void);    /* 1 = widen non-Mode-7 screens too */
+int   menu_overlay_get_fullscreen_m7(void); /* 1 = full-screen 1-player Mode-7 races */
 int   menu_overlay_get_filter(void);        /* SMK_FILTER_* (0 nearest, 1 linear, 2 sharp) */
 int   menu_overlay_get_fxaa(void);
 int   menu_overlay_get_scanlines(void);

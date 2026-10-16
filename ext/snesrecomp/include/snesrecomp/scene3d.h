@@ -55,6 +55,22 @@ void scene3d_draw(const Scene3DMesh *m, const float model[16], const float tint[
 void scene3d_blob_shadow(float x, float y, float radius, float alpha);
 void scene3d_end(void);
 
+/* ---- 2D overlay (HUD) in internal-target pixels, origin top-left ---- */
+typedef struct Scene3DTex Scene3DTex;
+/* Single-channel (R8) texture, linearly filtered; update with w*h bytes. */
+Scene3DTex *scene3d_tex_r8(int w, int h);
+void scene3d_tex_update(Scene3DTex *t, const uint8_t *data);
+void scene3d_ui_begin(const Scene3DFrame *f);
+/* Shape from a mask: coverage = texture value. Inside (>= 0.5) gets `fill`,
+ * a band just outside gets `edge` (outline). uv0/uv1 select the sub-rect. */
+void scene3d_ui_mask(const Scene3DTex *t, float x, float y, float w, float h,
+                     const float uv0[2], const float uv1[2],
+                     const float fill[4], const float edge[4]);
+/* Disc of radius r with a ring of `ring_px` pixels. */
+void scene3d_ui_disc(float cx, float cy, float r, const float fill[4],
+                     const float ring[4], float ring_px);
+void scene3d_ui_end(void);
+
 /* Matrix helpers. */
 void scene3d_mat_trs(float out[16], float x, float y, float z,
                      float yaw_rad, float sx, float sy, float sz);

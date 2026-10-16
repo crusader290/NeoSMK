@@ -30,7 +30,9 @@ extern "C" {
 
 typedef struct {
     int   line0, line1;     /* first / last scanline of the band (1-based) */
-    bool  perspective;      /* false = flat / overhead (e.g. SMK's map) */
+    bool  perspective;      /* false = flat (scale constant down the band) */
+    bool  chase;            /* perspective with the horizon at the top of the band:
+                             * a racing view (SMK's tilted overview map is not) */
     /* perspective camera (valid when perspective) */
     float cam[2];           /* camera ground position */
     float height;           /* H: camera height above the ground */
@@ -40,13 +42,27 @@ typedef struct {
     float horizon;          /* y_h: scanline of the horizon */
     float rms_line;         /* fit quality, pixels */
     float rms_col;
+    /* scanlines of the *presented* picture where 3D for this band may draw
+     * (differs from line0/line1 in the full-screen layout) */
+    int   draw_line0, draw_line1;
 } M7Band;
+
+/* How the frame is presented. */
+enum {
+    M7_LAYOUT_NATIVE = 0,      /* the SNES picture as-is */
+    M7_LAYOUT_FULLSCREEN = 1,  /* 1-player race: top band shifted down by line_offset,
+                                * GPU floor below it, sky above, split-screen map dropped */
+};
 
 typedef struct {
     int    cols;            /* picture width in SNES columns (256 + 2*ext) */
     int    lines;           /* picture height (224, or 239 with overscan) */
     int    nbands;
     M7Band band[M7VIEW_MAX_BANDS];
+    int    layout;          /* M7_LAYOUT_* */
+    int    line_offset;     /* full-screen: SNES line y is presented at y + line_offset */
+    int    top_skip;        /* full-screen: blank lines dropped from the top of the band */
+    float  sky[3];          /* full-screen: sky colour above the band (0..1) */
 } M7View;
 
 /* View of the most recently submitted frame (nbands == 0 when the frame has

@@ -18,6 +18,7 @@ typedef struct PpuM7Line {
   int32_t startY;
   int16_t a;         // m7 matrix a / c (per-pixel step)
   int16_t c;
+  uint8_t brightness;  // screen brightness this line was drawn with (0..15)
 } PpuM7Line;
 
 #include "snes.h"

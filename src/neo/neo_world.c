@@ -7,6 +7,13 @@
 #include <math.h>
 #include <string.h>
 
+/* SMK's character order (id * 2 in the racer record) */
+const float neo_char_color[8][3] = {
+    { 0.90f, 0.15f, 0.15f }, { 0.20f, 0.75f, 0.25f }, { 0.95f, 0.60f, 0.10f },
+    { 1.00f, 0.55f, 0.75f }, { 0.55f, 0.35f, 0.20f }, { 0.30f, 0.65f, 0.95f },
+    { 0.95f, 0.95f, 0.95f }, { 0.55f, 0.95f, 0.40f },
+};
+
 static int16_t s16(uint16_t v) { return (int16_t)v; }
 
 void neo_world_read(NeoWorld *w) {

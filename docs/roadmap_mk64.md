@@ -5,8 +5,8 @@ and widescreen. This document scopes phase 2: bringing over **Mario Kart 64 game
 systems** and **replacing selected sprites with real 3D objects**, within the platform targets
 (Raspberry Pi 4, GLES 3.0, 640×480-class internal resolution, 60 FPS, < 512 MB).
 
-Status: **B1 camera reconstruction**, the **mini-turbo** and **3D item boxes** are
-implemented (see below);
+Status: **B1 camera reconstruction**, the **mini-turbo**, **3D item boxes** and
+**full-screen single-player races** with a circuit map are implemented (see below);
 the rest is still a plan.
 
 ## Ground rules
@@ -54,7 +54,22 @@ To place 3D geometry consistently with the Mode-7 floor, we need the projection 
 - **Validation tool:** a debug overlay that draws 3D markers at every kart's world position
   should land exactly on the kart sprites. That proves the camera before any art exists.
 
+### Full-screen single-player races — done
+
+Graphics → Full-screen 1P races. A frame is shown full-screen when its only "chase" Mode-7 band
+is at the top: a perspective band with its horizon at the band's top edge. SMK's overview map is
+also perspective (slightly tilted) but its horizon is far above it, so it doesn't count; two
+chase bands (2-player) keep the native split. The band is drawn 1:1, shifted down so the horizon
+sits at ~30% of the screen. The rows below are ray-cast onto the ground plane on the GPU
+(`kFloorFS` in `renderer.c`: tilemap → character → palette, like the PPU, with per-line
+brightness), and the sky colour fills the top. The overview map is replaced by a circuit map
+built from the tile behaviours (`src/neo/neo_minimap.c`). The 3D layer follows the shifted
+view through `M7View.line_offset`.
+
 ### B2. HD Mode 7 floor (optional, high payoff)
+
+The full-screen layout already renders the floor this way below the SNES band. The remaining step
+is to replace the band's floor as well (needs the sprites separated from the PPU's Mode-7 layer).
 
 Decode the 1024×1024 Mode-7 tilemap and character data from VRAM into a GL texture and draw
 the track as one real textured plane with the reconstructed camera. Benefits:

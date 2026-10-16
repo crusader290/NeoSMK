@@ -294,6 +294,7 @@ void ppu_runLine(Ppu* ppu, int line) {
       m7->startY = ppu->m7startY;
       m7->a = ppu->m7matrix[0];
       m7->c = ppu->m7matrix[2];
+      m7->brightness = ppu->brightness;
     }
   }
   int ext = ppu->wideFrame ? ppu->wideExt : 0;

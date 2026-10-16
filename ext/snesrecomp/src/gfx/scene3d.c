@@ -66,6 +66,54 @@ static const char *kBlobFS =
     "    o_color = vec4(0.0, 0.0, 0.0, a);\n"
     "}\n";
 
+static const char *kUiVS =
+    "in vec2 a_pos;\n"
+    "uniform vec4 u_rect;\n"        /* centre xy, half-size zw, target px (top-left origin) */
+    "uniform vec2 u_target;\n"
+    "uniform vec4 u_uv;\n"          /* uv centre xy, centre + half-extent zw */
+    "out vec2 v_uv;\n"
+    "out vec2 v_q;\n"
+    "void main() {\n"
+    "    vec2 p = u_rect.xy + a_pos * u_rect.zw;\n"
+    "    v_uv = mix(u_uv.xy, u_uv.zw, a_pos);\n"
+    "    v_q = a_pos;\n"
+    "    gl_Position = vec4(p.x / u_target.x * 2.0 - 1.0, 1.0 - p.y / u_target.y * 2.0, 0.0, 1.0);\n"
+    "}\n";
+
+static const char *kUiFS =
+    "in vec2 v_uv;\n"
+    "in vec2 v_q;\n"
+    "out vec4 o_color;\n"
+    "uniform sampler2D u_mask;\n"
+    "uniform int u_mode;\n"         /* 0 mask, 1 disc */
+    "uniform vec4 u_fill;\n"
+    "uniform vec4 u_edge;\n"
+    "uniform float u_ring;\n"       /* disc: ring width as a fraction of radius */
+    "uniform float u_aa;\n"         /* disc: one pixel as a fraction of radius */
+    "void main() {\n"
+    "    if (u_mode == 0) {\n"
+    "        float m = texture(u_mask, v_uv).r;\n"
+    "        float inside = smoothstep(0.42, 0.58, m);\n"
+    "        float outline = smoothstep(0.08, 0.28, m) * (1.0 - inside);\n"
+    "        float t = inside / max(inside + outline, 1e-4);\n"
+    "        o_color = vec4(mix(u_edge.rgb, u_fill.rgb, t), u_fill.a * inside + u_edge.a * outline);\n"
+    "    } else {\n"
+    "        float d = length(v_q);\n"
+    "        float a = 1.0 - smoothstep(1.0 - u_aa, 1.0, d);\n"
+    "        float inner = 1.0 - smoothstep(1.0 - u_ring - u_aa, 1.0 - u_ring, d);\n"
+    "        vec4 c = mix(u_edge, u_fill, inner);\n"
+    "        o_color = vec4(c.rgb, c.a * a);\n"
+    "    }\n"
+    "}\n";
+
+struct Scene3DTex { GLuint tex; int w, h; };
+
+static struct {
+    GLuint ui_prog;
+    GLint  u_rect, u_target, u_uv, u_mask, u_mode, u_fill, u_edge, u_ring, u_aa;
+    float  tw, th;
+} U;
+
 static struct {
     bool   ready;
     GLuint mesh_prog, blob_prog;
@@ -101,6 +149,18 @@ bool scene3d_init(void) {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void *)0);
     glBindVertexArray(0);
+    static const char *const ui_attr[] = { "a_pos", NULL };
+    U.ui_prog = smkgl_build_program("scene3d-ui", kUiVS, kUiFS, ui_attr);
+    if (!U.ui_prog) return false;
+    U.u_rect   = glGetUniformLocation(U.ui_prog, "u_rect");
+    U.u_target = glGetUniformLocation(U.ui_prog, "u_target");
+    U.u_uv     = glGetUniformLocation(U.ui_prog, "u_uv");
+    U.u_mask   = glGetUniformLocation(U.ui_prog, "u_mask");
+    U.u_mode   = glGetUniformLocation(U.ui_prog, "u_mode");
+    U.u_fill   = glGetUniformLocation(U.ui_prog, "u_fill");
+    U.u_edge   = glGetUniformLocation(U.ui_prog, "u_edge");
+    U.u_ring   = glGetUniformLocation(U.ui_prog, "u_ring");
+    U.u_aa     = glGetUniformLocation(U.ui_prog, "u_aa");
     S.ready = true;
     return true;
 }
@@ -108,6 +168,8 @@ bool scene3d_init(void) {
 void scene3d_shutdown(void) {
     if (S.mesh_prog) glDeleteProgram(S.mesh_prog);
     if (S.blob_prog) glDeleteProgram(S.blob_prog);
+    if (U.ui_prog)   glDeleteProgram(U.ui_prog);
+    memset(&U, 0, sizeof(U));
     if (S.blob_vbo)  glDeleteBuffers(1, &S.blob_vbo);
     if (S.blob_vao)  glDeleteVertexArrays(1, &S.blob_vao);
     Scene3DHook hook = S.hook;
@@ -325,4 +387,82 @@ void scene3d_mat_spin(float out[16], float x, float y, float z,
     out[4] = -sy * ct * scale; out[5] = cy * ct * scale;  out[6] = st * scale;  out[7] = 0.0f;
     out[8] = sy * st * scale;  out[9] = -cy * st * scale; out[10] = ct * scale; out[11] = 0.0f;
     out[12] = x; out[13] = y; out[14] = z; out[15] = 1.0f;
+}
+
+/* ---- 2D overlay ---- */
+
+Scene3DTex *scene3d_tex_r8(int w, int h) {
+    Scene3DTex *t = (Scene3DTex *)calloc(1, sizeof(*t));
+    if (!t) return NULL;
+    t->w = w; t->h = h;
+    glGenTextures(1, &t->tex);
+    glBindTexture(GL_TEXTURE_2D, t->tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    return t;
+}
+
+void scene3d_tex_update(Scene3DTex *t, const uint8_t *data) {
+    if (!t) return;
+    glBindTexture(GL_TEXTURE_2D, t->tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, t->w, t->h, GL_RED, GL_UNSIGNED_BYTE, data);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+}
+
+void scene3d_ui_begin(const Scene3DFrame *f) {
+    U.tw = (float)f->target_w;
+    U.th = (float)f->target_h;
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(U.ui_prog);
+    glUniform2f(U.u_target, U.tw, U.th);
+    glUniform1i(U.u_mask, 0);
+    glBindVertexArray(S.blob_vao);   /* unit quad, remapped below */
+}
+
+static void ui_quad(float x, float y, float w, float h) {
+    /* blob_vao holds a -1..1 quad: map it onto [x, x+w] x [y, y+h] */
+    glUniform4f(U.u_rect, x + w * 0.5f, y + h * 0.5f, w * 0.5f, h * 0.5f);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+void scene3d_ui_mask(const Scene3DTex *t, float x, float y, float w, float h,
+                     const float uv0[2], const float uv1[2],
+                     const float fill[4], const float edge[4]) {
+    if (!t) return;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, t->tex);
+    glUniform1i(U.u_mode, 0);
+    /* a_pos spans -1..1, so pass uv as centre and half-extent */
+    glUniform4f(U.u_uv, (uv0[0] + uv1[0]) * 0.5f, (uv0[1] + uv1[1]) * 0.5f,
+                (uv0[0] + uv1[0]) * 0.5f + (uv1[0] - uv0[0]) * 0.5f,
+                (uv0[1] + uv1[1]) * 0.5f + (uv1[1] - uv0[1]) * 0.5f);
+    glUniform4f(U.u_fill, fill[0], fill[1], fill[2], fill[3]);
+    glUniform4f(U.u_edge, edge[0], edge[1], edge[2], edge[3]);
+    ui_quad(x, y, w, h);
+}
+
+void scene3d_ui_disc(float cx, float cy, float r, const float fill[4],
+                     const float ring[4], float ring_px) {
+    glUniform1i(U.u_mode, 1);
+    glUniform4f(U.u_fill, fill[0], fill[1], fill[2], fill[3]);
+    glUniform4f(U.u_edge, ring[0], ring[1], ring[2], ring[3]);
+    glUniform1f(U.u_ring, r > 0 ? ring_px / r : 0.0f);
+    glUniform1f(U.u_aa, r > 0 ? 1.0f / r : 1.0f);
+    ui_quad(cx - r, cy - r, 2.0f * r, 2.0f * r);
+}
+
+void scene3d_ui_end(void) {
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
 }

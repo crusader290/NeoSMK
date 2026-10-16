@@ -94,6 +94,43 @@ static const char *kOutputFS =
     "    o_color = vec4(c, 1.0);\n"
     "}\n";
 
+/* Full-screen layout floor: every fragment below the horizon is a ray onto
+ * the ground plane through the reconstructed camera; the hit point indexes the
+ * Mode-7 tilemap -> character -> palette exactly like the PPU, but at the
+ * internal target's resolution and over lines the SNES never drew. */
+static const char *kFloorFS =
+    "out vec4 o_color;\n"
+    "uniform sampler2D u_tilemap;\n"
+    "uniform sampler2D u_chars;\n"
+    "uniform sampler2D u_pal;\n"
+    "uniform vec2  u_target;\n"     /* internal target px */
+    "uniform vec2  u_pic;\n"        /* presented cols, lines */
+    "uniform float u_offset;\n"
+    "uniform vec2  u_cam;\n"
+    "uniform vec2  u_fwd;\n"
+    "uniform vec2  u_right;\n"
+    "uniform vec3  u_fhy;\n"        /* focal, height, horizon */
+    "uniform float u_ext;\n"
+    "uniform int   u_outside;\n"
+    "int idx(sampler2D t, ivec2 p) { return int(texelFetch(t, p, 0).r * 255.0 + 0.5); }\n"
+    "void main() {\n"
+    "    float U = gl_FragCoord.x / u_target.x * u_pic.x;\n"
+    "    float V = (u_target.y - gl_FragCoord.y) / u_target.y * u_pic.y - u_offset;\n"
+    "    float dv = V - u_fhy.z + 0.5;\n"
+    "    if (dv <= 0.05) discard;\n"
+    "    float depth = u_fhy.x * u_fhy.y / dv;\n"
+    "    float lat = (U - 128.5 - u_ext) * depth / u_fhy.x;\n"
+    "    vec2 w = u_cam + u_fwd * depth + u_right * lat;\n"
+    "    ivec2 wi = ivec2(floor(w));\n"
+    "    bool outside = wi.x < 0 || wi.y < 0 || wi.x > 1023 || wi.y > 1023;\n"
+    "    int tile = 0;\n"
+    "    if (outside && u_outside == 1) { o_color = vec4(texelFetch(u_pal, ivec2(0, 0), 0).rgb, 1.0); return; }\n"
+    "    if (outside && u_outside == 0) wi = wi & 1023;\n"
+    "    if (!outside || u_outside == 0) tile = idx(u_tilemap, wi >> 3);\n"
+    "    ivec2 c = ivec2((tile & 15) * 8, (tile >> 4) * 8) + (wi & 7);\n"
+    "    o_color = vec4(texelFetch(u_pal, ivec2(idx(u_chars, c), 0), 0).rgb, 1.0);\n"
+    "}\n";
+
 typedef struct {
     GLuint prog;
     GLint  u_rect, u_flip_y, u_tex;
@@ -113,7 +150,21 @@ static struct {
     GLint  out_src, out_dst, out_sharp, out_scan;
     Target internal, post;
     int    int_w, int_h;     /* internal target size */
+    Pass   floor;
+    GLint  f_tilemap, f_chars, f_pal, f_target, f_pic, f_offset, f_cam, f_fwd, f_right,
+           f_fhy, f_ext, f_outside;
+    GLuint tex_tilemap, tex_chars, tex_pal;
 } R;
+
+/* Full-screen frame data, copied at submit (outside R: survives GL re-init). */
+static RendererM7Frame s_m7;
+static bool s_m7_valid = false;
+static bool s_m7_dirty = false;
+
+void renderer_set_m7_frame(const RendererM7Frame *f) {
+    s_m7_valid = f != NULL;
+    if (f) { s_m7 = *f; s_m7_dirty = true; }
+}
 
 static bool make_pass(Pass *p, const char *name, const char *fs) {
     p->prog = smkgl_build_program(name, kFullscreenVS, fs, NULL);
@@ -133,6 +184,20 @@ static GLuint make_texture(int w, int h, GLint filter, const void *pixels) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    return t;
+}
+
+static GLuint make_r8_texture(int w, int h) {
+    GLuint t;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     return t;
 }
 
@@ -188,6 +253,27 @@ bool renderer_init(void) {
     R.out_sharp = glGetUniformLocation(R.out.prog, "u_sharp");
     R.out_scan  = glGetUniformLocation(R.out.prog, "u_scanlines");
 
+    if (!make_pass(&R.floor, "m7floor", kFloorFS)) {
+        renderer_shutdown();
+        return false;
+    }
+    R.f_tilemap = glGetUniformLocation(R.floor.prog, "u_tilemap");
+    R.f_chars   = glGetUniformLocation(R.floor.prog, "u_chars");
+    R.f_pal     = glGetUniformLocation(R.floor.prog, "u_pal");
+    R.f_target  = glGetUniformLocation(R.floor.prog, "u_target");
+    R.f_pic     = glGetUniformLocation(R.floor.prog, "u_pic");
+    R.f_offset  = glGetUniformLocation(R.floor.prog, "u_offset");
+    R.f_cam     = glGetUniformLocation(R.floor.prog, "u_cam");
+    R.f_fwd     = glGetUniformLocation(R.floor.prog, "u_fwd");
+    R.f_right   = glGetUniformLocation(R.floor.prog, "u_right");
+    R.f_fhy     = glGetUniformLocation(R.floor.prog, "u_fhy");
+    R.f_ext     = glGetUniformLocation(R.floor.prog, "u_ext");
+    R.f_outside = glGetUniformLocation(R.floor.prog, "u_outside");
+    R.tex_tilemap = make_r8_texture(128, 128);
+    R.tex_chars   = make_r8_texture(128, 128);
+    R.tex_pal     = make_texture(256, 1, GL_NEAREST, NULL);
+    s_m7_dirty = true;
+
     R.snes_tex = make_texture(SNES_TEX_W, SNES_TEX_H, GL_LINEAR, NULL);
     R.snes_rect[0] = 0.0f;
     R.snes_rect[1] = 0.0f;
@@ -209,6 +295,10 @@ bool renderer_init(void) {
 void renderer_shutdown(void) {
     scene3d_shutdown();
     if (R.snes.prog) glDeleteProgram(R.snes.prog);
+    if (R.floor.prog) glDeleteProgram(R.floor.prog);
+    if (R.tex_tilemap) glDeleteTextures(1, &R.tex_tilemap);
+    if (R.tex_chars)   glDeleteTextures(1, &R.tex_chars);
+    if (R.tex_pal)     glDeleteTextures(1, &R.tex_pal);
     if (R.fxaa.prog) glDeleteProgram(R.fxaa.prog);
     if (R.out.prog)  glDeleteProgram(R.out.prog);
     if (R.snes_tex)  glDeleteTextures(1, &R.snes_tex);
@@ -258,6 +348,63 @@ static void draw_pass(const Pass *p, GLuint tex, const float rect[4], bool flip_
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
+/* Full-screen Mode-7 composition into the bound internal target. */
+static void draw_fullscreen_m7(void) {
+    const RendererM7Frame *m = &s_m7;
+    glClearColor(m->sky[0], m->sky[1], m->sky[2], 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    if (s_m7_dirty) {
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glBindTexture(GL_TEXTURE_2D, R.tex_tilemap);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 128, 128, GL_RED, GL_UNSIGNED_BYTE, m->tilemap);
+        glBindTexture(GL_TEXTURE_2D, R.tex_chars);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 128, 128, GL_RED, GL_UNSIGNED_BYTE, m->chars);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glBindTexture(GL_TEXTURE_2D, R.tex_pal);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGBA, GL_UNSIGNED_BYTE, m->palette);
+        s_m7_dirty = false;
+    }
+
+    /* ground below the horizon (the race band is drawn over its part) */
+    glUseProgram(R.floor.prog);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, R.tex_tilemap);
+    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, R.tex_chars);
+    glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, R.tex_pal);
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(R.f_tilemap, 0);
+    glUniform1i(R.f_chars, 1);
+    glUniform1i(R.f_pal, 2);
+    glUniform2f(R.f_target, (float)R.int_w, (float)R.int_h);
+    glUniform2f(R.f_pic, (float)m->cols, (float)m->lines);
+    glUniform1f(R.f_offset, (float)m->line_offset);
+    glUniform2f(R.f_cam, m->cam[0], m->cam[1]);
+    glUniform2f(R.f_fwd, m->fwd[0], m->fwd[1]);
+    glUniform2f(R.f_right, m->right[0], m->right[1]);
+    glUniform3f(R.f_fhy, m->focal, m->height, m->horizon);
+    glUniform1f(R.f_ext, (float)((m->cols - 256) / 2));
+    glUniform1i(R.f_outside, m->outside);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    /* the SNES race band, 1:1, shifted down by line_offset */
+    int top = (int)((float)(m->band_first - 1 + m->line_offset) / m->lines * R.int_h + 0.5f);
+    int bot = (int)((float)(m->band_last + m->line_offset) / m->lines * R.int_h + 0.5f);
+    if (bot > top) {
+        /* inset half a texel top and bottom: the bilinear filter must not
+         * pull in the blank rows just outside the band */
+        float half = 0.5f / SNES_TEX_H;
+        float rect[4] = {
+            R.snes_rect[0],
+            R.snes_rect[1] + R.snes_rect[3] * (float)(m->band_first - 1) / m->lines + half,
+            R.snes_rect[2],
+            R.snes_rect[3] * (float)(m->band_last - m->band_first + 1) / m->lines - 2.0f * half,
+        };
+        glViewport(0, R.int_h - bot, R.int_w, bot - top);
+        draw_pass(&R.snes, R.snes_tex, rect, true);
+        glViewport(0, 0, R.int_w, R.int_h);
+    }
+}
+
 void renderer_draw(int out_w, int out_h, int top_inset,
                    float bar_r, float bar_g, float bar_b,
                    const RendererSettings *s) {
@@ -275,8 +422,12 @@ void renderer_draw(int out_w, int out_h, int top_inset,
     glViewport(0, 0, R.int_w, R.int_h);
     glDepthMask(GL_TRUE);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    draw_pass(&R.snes, R.snes_tex, R.snes_rect, true);
+    if (s_m7_valid) {
+        draw_fullscreen_m7();
+    } else {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        draw_pass(&R.snes, R.snes_tex, R.snes_rect, true);
+    }
     if (scene3d_has_hook()) {
         scene3d_run_hook(R.int_w, R.int_h);
         glDisable(GL_DEPTH_TEST);

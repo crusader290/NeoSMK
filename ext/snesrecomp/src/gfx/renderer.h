@@ -59,6 +59,25 @@ void renderer_upload_snes(const uint8_t *fb, int width, int y, int h);
 /* Current internal target size (pixels). */
 void renderer_get_internal_size(int *w, int *h);
 
+/* Full-screen Mode-7 presentation (see m7view.h M7_LAYOUT_FULLSCREEN): the
+ * race band is drawn shifted down, the ground below it is rendered on the
+ * GPU from the Mode-7 tilemap / characters / palette through the camera, and
+ * the area above is filled with the sky colour. */
+typedef struct {
+    int     cols, lines;            /* presented picture (SNES columns / lines) */
+    int     line_offset;            /* SNES line y is presented at y + line_offset */
+    int     band_first, band_last;  /* SNES lines of the race band to keep */
+    float   sky[3];
+    float   cam[2], fwd[2], right[2], focal, height, horizon;   /* floor camera */
+    int     outside;                /* 0 wrap, 1 backdrop, 2 tile 0 (charFill) */
+    uint8_t tilemap[128 * 128];     /* Mode-7 tile ids */
+    uint8_t chars[128 * 128];       /* 256 8x8 characters as a 16x16 atlas */
+    uint8_t palette[256 * 4];       /* RGBA, screen brightness applied */
+} RendererM7Frame;
+
+/* Copy the full-screen data for the next present (NULL: native layout). */
+void renderer_set_m7_frame(const RendererM7Frame *f);
+
 /* Compose and draw one output frame into the default framebuffer of size
  * out_w x out_h (pixels). `top_inset` pixels at the top are reserved for
  * the menu bar and cleared to (bar_r, bar_g, bar_b). */
