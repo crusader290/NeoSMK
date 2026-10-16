@@ -6,7 +6,37 @@ installing. **No ROM is included:** put your own US v1.0 dump
 (MD5 `7f25ce5a283d902694c52fb1152fa61a`) next to the executable as
 `Super Mario Kart (USA).sfc`, or pass its path as the first argument.
 
-## v0.2.0 (latest)
+## v0.3.0 (latest)
+
+Built from commit `b454f86` (SDL 3.2.30, Dear ImGui 1.91.9b). Checksums are in
+[`v0.3.0/SHA256SUMS`](v0.3.0/SHA256SUMS). Same platforms and toolchains as v0.1.0 below.
+
+| File | Platform |
+|---|---|
+| [`neosmk-linux-arm64-pi4.tar.gz`](v0.3.0/neosmk-linux-arm64-pi4.tar.gz) | Raspberry Pi 4 (and newer), 64-bit Raspberry Pi OS Bookworm or later |
+| [`neosmk-linux-x64.tar.gz`](v0.3.0/neosmk-linux-x64.tar.gz) | x86-64 Linux with glibc ≥ 2.35 (Debian 12, Ubuntu 22.04+, Fedora 36+) |
+| [`neosmk-windows-x64.zip`](v0.3.0/neosmk-windows-x64.zip) | Windows 10/11 x64 |
+
+**New since v0.2.0:**
+
+- **Full-screen single-player races** (Graphics → Full-screen 1P races, on by default). The race
+  fills the screen instead of the top half: the game's view is shifted down, the track below it
+  is rendered on the GPU from the Mode-7 tilemap, and the lines above it (clouds, scenery, Lakitu
+  with the start lights) are rendered by the PPU instead of being cut off. Two-player races keep
+  the split screen.
+- **Circuit map** (NeoSMK menu, on by default). A Mario Kart 8-style map at the bottom right with
+  every racer in their character colour, replacing SMK's overview map in full-screen races.
+- **MK8-style HUD** (NeoSMK menu, on by default). In full-screen races the HUD moves to the
+  corners: timer and lap top-right, lives and coins bottom-left, position bottom-right under the
+  circuit map. The PPU separates the HUD from the picture, so what was behind it is shown.
+- Visual only: game state is unchanged by all of the above.
+
+**Tested:** Linux x64 and the Pi 4 build (under qemu-aarch64) ran the ROM title → menus → race and
+produced WRAM/VRAM/CGRAM snapshots byte-identical to the reference run. The Linux package's
+screenshots show the full-screen layout, circuit map and HUD. Windows was checked under Wine
+(`--version`). **Not yet run on real Raspberry Pi or native Windows hardware.**
+
+## v0.2.0
 
 Built from commit `0451d5f` (SDL 3.2.30, Dear ImGui 1.91.9b). Checksums are in
 [`v0.2.0/SHA256SUMS`](v0.2.0/SHA256SUMS). Same platforms and toolchains as v0.1.0
