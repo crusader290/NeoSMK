@@ -107,6 +107,17 @@ box (BG2) and the position number (colour window) go right.
 
 ### HUD over the 3D layer — done
 
+The 3D layer is clipped from the top of the player's view (not the band's first line), so walls
+and objects near the horizon stick up past it, and the flat barrier tiles under 3D walls are
+painted over with the surrounding ground. Walls are no longer cut near the camera: the player's
+own kart is drawn in front of all 3D instead (a picture box passed to the sprite layer).
+Screen-space sprites (Lakitu with the lap / reverse signs) are separated from line 1 and kept in
+the upward extension, so they aren't covered or cut while flying up. Palette-4 sprites (SMK's
+text: pause menu, results) are always in front. A HUD BG layer (SMK's BG2) shows nothing in the
+widescreen side columns, where its tilemap holds unrelated graphics (red stripes on Ghost
+Valley). The upward extension also stops a BG layer at rows using colours its real top lines
+don't.
+
 The HUD is separated from the picture on every racing frame, not only in the MK8 layout.
 NeoSMK draws it after the 3D objects and sprites, in place when the MK8 layout is off.
 Window-shaped colour maths covering most of a line (SMK dims the whole view on "ranked out",
@@ -168,7 +179,7 @@ Order by visual payoff vs risk:
    `snesrecomp_set_m7_override`) paints each coin / panel cell with the road around it, on the
    racing bands only (also used for the GPU floor). Stripes such as the start grid are
    continued from the nearest visible cells left / right or up / down. VRAM is untouched.
-5. **Pipes**: **done** (`src/neo/neo_pipes.c`). Pipes are objects in SMK's slots (WRAM $1800 +
+5. **Pipes**: **done** (`src/neo/neo_pipes.c`). The pipe sprite palette differs per track; it is learnt each race by voting over sprites that stand on the pipes' projected positions, and the 3D colours are sampled from the largest pipe sprite (green on Mario Circuit, copper on Donut Plains). Pipes are objects in SMK's slots (WRAM $1800 +
    n·$80, handler +$04 = $E4E7). Each is drawn as a green 3D pipe. Before every frame
    (`snesrecomp_set_preframe_hook`), its palette-7 sprites near the pipe's projected base are
    hidden (`Ppu.objHide`: not drawn, but still counted like hardware). Used "?" panels (tiles

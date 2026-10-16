@@ -252,6 +252,7 @@ static const uint16_t *s_m7_override = NULL;
 static bool            s_spr_on = false;
 static uint8_t         s_spr_exclude[16];
 static uint8_t         s_spr_front[16];
+static uint8_t         s_spr_front_pal = 0;
 static bool            s_anchor_on = false;
 static int8_t          s_anchor_obj[128];
 static int8_t          s_anchor_bg[4];
@@ -268,6 +269,8 @@ void snesrecomp_set_sprite_layer(bool enabled, const uint8_t exclude[16], const 
     if (front) memcpy(s_spr_front, front, sizeof(s_spr_front));
     else memset(s_spr_front, 0, sizeof(s_spr_front));
 }
+
+void snesrecomp_set_sprite_front_palettes(uint8_t mask) { s_spr_front_pal = mask; }
 
 void snesrecomp_set_ui_anchors(const int8_t obj[128], const int8_t bg[4], int bg_min_line,
                                int color_window) {
@@ -290,6 +293,20 @@ void snesrecomp_set_preframe_hook(SnesPreFrameHook hook, void *user) {
 
 void snesrecomp_set_obj_hide(const uint8_t mask[16]) {
     if (s_snes) ppu_setObjHide(s_snes->ppu, mask);
+}
+
+int snesrecomp_obj_pixel(int tile, int x, int y) {
+    if (!s_snes) return 0;
+    Ppu *ppu = s_snes->ppu;
+    /* 16x16-page addressing like the PPU: tile + (y / 8) * 16 + x / 8 */
+    int t = tile & 0xFF;
+    t = ((((t >> 4) + (y >> 3)) & 0xF) << 4) | (((t & 0xF) + (x >> 3)) & 0xF);
+    uint16_t base = (tile & 0x100) ? ppu->objTileAdr2 : ppu->objTileAdr1;
+    uint16_t p1 = ppu->vram[(base + t * 16 + (y & 7)) & 0x7FFF];
+    uint16_t p2 = ppu->vram[(base + t * 16 + 8 + (y & 7)) & 0x7FFF];
+    int sh = 7 - (x & 7);
+    return ((p1 >> sh) & 1) | (((p1 >> (8 + sh)) & 1) << 1) | (((p2 >> sh) & 1) << 2) |
+           (((p2 >> (8 + sh)) & 1) << 3);
 }
 
 void snesrecomp_read_oam(int index, SnesOamEntry *out) {
@@ -322,8 +339,11 @@ static void apply_track_layers(void) {
     ppu_setM7Override(s_snes->ppu, l1 > 0 ? s_m7_override : NULL, l1);
     /* native layout: karts poke out a little below the band */
     int max = s_view.layout == M7_LAYOUT_FULLSCREEN ? l1 : l1 + 8;
-    ppu_setObjSep(s_snes->ppu, s_spr_on && l1 > 0, l0, max, s_spr_exclude);
+    /* from the top: screen-space sprites above the band (Lakitu) must stay in
+     * front of 3D objects that stick up past the horizon */
+    ppu_setObjSep(s_snes->ppu, s_spr_on && l1 > 0, 1, max, s_spr_exclude);
     ppu_setObjSepFront(s_snes->ppu, s_spr_front);
+    ppu_setObjSepFrontPalettes(s_snes->ppu, s_spr_front_pal);
     /* UI anchoring: 1-player frames only (2-player HUDs sit per half) */
     int nchase = 0;
     for (int i = 0; i < s_view.nbands; i++) nchase += s_view.band[i].chase ? 1 : 0;

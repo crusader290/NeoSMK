@@ -448,6 +448,10 @@ void scene3d_end(void) {
     glBindVertexArray(0);
 }
 
+void scene3d_sprites_front_box(int band, float x0, float y0, float x1, float y1, float bottom) {
+    renderer_set_sprite_front_box(band, x0, y0, x1, y1, bottom);
+}
+
 void scene3d_sprites(void) {
     renderer_draw_sprites();
     glBindVertexArray(0);

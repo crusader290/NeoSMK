@@ -3,9 +3,10 @@
  *
  * Pipes are track objects: SMK keeps the ones near the player in its object
  * slots (WRAM $1800 + n * $80, X at +$18, Y at +$1C like the racers), all run
- * by the same handler (+$04 = $E4E7). Each is drawn as a green 3D pipe, and
- * before every frame the pipe's sprites (palette 7, matched to the pipe's
- * projected position) are hidden from the picture. Presentation only.
+ * by the same handler (+$04 = $E4E7). Each is drawn as a 3D pipe coloured
+ * from the track's own pipe sprite (green, or copper on some tracks), and
+ * before every frame the pipe's sprites (the palette learnt from sprites on
+ * the pipes' projected positions) are hidden from the picture. Presentation only.
  */
 #include "neo.h"
 
@@ -23,7 +24,6 @@
 #define SMK_OBJ_X           0x18
 #define SMK_OBJ_Y           0x1C
 #define SMK_PIPE_HANDLER    0xE4E7
-#define SMK_PIPE_PALETTE    7
 
 #define PIPE_RADIUS   3.6f      /* world units (a kart is ~7) */
 #define PIPE_HEIGHT   8.0f
@@ -36,6 +36,57 @@ typedef struct { float x, y; } Pipe;
 static Pipe s_pipe[SMK_OBJ_SLOTS];
 static int  s_npipes = 0;
 static Scene3DMesh *s_mesh = NULL;
+
+/* Pipe colours (body, rim, opening), sampled from the track's pipe sprite:
+ * green on Mario Circuit, other tracks have their own. */
+static float s_col[3][3] = { { 0.10f, 0.62f, 0.16f }, { 0.16f, 0.80f, 0.22f }, { 0.01f, 0.12f, 0.03f } };
+static bool  s_col_sampled = false;
+static bool  s_mesh_dirty = false;
+
+static float lum(const float c[3]) { return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]; }
+
+/* Colours of a pipe sprite: its three most used visible colours, darkest =
+ * the opening, middle = body, brightest = rim. */
+static void sample_colours(const SnesOamEntry *e) {
+    int count[16] = { 0 };
+    for (int y = 0; y < e->size; y++)
+        for (int x = 0; x < e->size; x++) count[snesrecomp_obj_pixel(e->tile, x, y)]++;
+    float c[16][3];
+    int idx[3] = { -1, -1, -1 };
+    for (int i = 1; i < 16; i++) {
+        uint16_t v = snesrecomp_read_cgram((uint8_t)(128 + e->palette * 16 + i));
+        c[i][0] = (v & 31) / 31.0f; c[i][1] = ((v >> 5) & 31) / 31.0f; c[i][2] = ((v >> 10) & 31) / 31.0f;
+        if (count[i] == 0 || lum(c[i]) < 0.04f) continue;          /* unused / outline */
+        for (int k = 0; k < 3; k++) {
+            if (idx[k] < 0 || count[i] > count[idx[k]]) {
+                for (int m = 2; m > k; m--) idx[m] = idx[m - 1];
+                idx[k] = i;
+                break;
+            }
+        }
+    }
+    if (idx[0] < 0) return;
+    if (idx[1] < 0) idx[1] = idx[0];
+    if (idx[2] < 0) idx[2] = idx[1];
+    /* sort the three by brightness */
+    for (int a = 0; a < 3; a++)
+        for (int b = a + 1; b < 3; b++)
+            if (lum(c[idx[b]]) < lum(c[idx[a]])) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
+    float body[3], rim[3], hole[3];
+    for (int k = 0; k < 3; k++) {
+        body[k] = c[idx[1]][k];
+        rim[k] = c[idx[2]][k];
+        hole[k] = c[idx[0]][k] * 0.35f;
+    }
+    bool changed = false;
+    for (int k = 0; k < 3; k++)
+        changed |= fabsf(body[k] - s_col[0][k]) > 0.02f || fabsf(rim[k] - s_col[1][k]) > 0.02f;
+    memcpy(s_col[0], body, sizeof(body));
+    memcpy(s_col[1], rim, sizeof(rim));
+    memcpy(s_col[2], hole, sizeof(hole));
+    if (changed) s_mesh_dirty = true;
+    s_col_sampled = true;
+}
 
 static void read_pipes(void) {
     s_npipes = 0;
@@ -52,12 +103,26 @@ static void read_pipes(void) {
 
 /* Before a frame: hide the sprites of pipes drawn in 3D. A pipe sprite is a
  * palette-7 sprite standing on (or stacked above) a pipe's projected base. */
+/* Sprite palette the track draws its pipes with (-1 = not known yet): the
+ * palette most often found on sprites standing on the pipes' positions. */
+static int s_pipe_pal = -1;
+static int s_pal_votes[8];
+
 static void preframe(void *user) {
     (void)user;
     bool in_race = bus_wram_read16(SMK_RAM_GAME_STATE) == 0x0002;
-    if (!in_race || !s_pipes3d) { s_npipes = 0; snesrecomp_set_obj_hide(NULL); return; }
+    if (!in_race || !s_pipes3d) {
+        s_npipes = 0;
+        s_col_sampled = false;           /* the next track samples again */
+        s_pipe_pal = -1;
+        memset(s_pal_votes, 0, sizeof(s_pal_votes));
+        snesrecomp_set_obj_hide(NULL);
+        return;
+    }
     read_pipes();
     uint8_t hide[16] = { 0 };
+    SnesOamEntry best;
+    int best_size = 0;
     const M7View *v = snesrecomp_m7_view();
     int ext = (v->cols - 256) / 2;
     int off = v->layout == M7_LAYOUT_FULLSCREEN ? v->line_offset : 0;
@@ -69,19 +134,29 @@ static void preframe(void *user) {
             if (!m7view_project(v, b, s_pipe[p].x, s_pipe[p].y, 0.0f, &col, &line)) continue;
             float sx = col - ext;           /* screen x as OAM counts it */
             float base = line + 0.5f - off; /* scanline under the pipe's base */
-            if (base < b->line0 - 2 || base > b->line1 + 24) continue;
-            for (int n = 0; n < 128; n++) {
+            if (base < b->line0 - 2) continue;   /* close pipes: SMK still draws their top */
+            for (int n = 28; n < 120; n++) {     /* track objects (not the HUD / Lakitu) */
                 SnesOamEntry e;
                 snesrecomp_read_oam(n, &e);
-                if (e.palette != SMK_PIPE_PALETTE || e.y >= 240) continue;
+                if (e.y >= 224 || (s_pipe_pal >= 0 && e.palette != s_pipe_pal)) continue;
                 float cx = e.x + e.size * 0.5f, bottom = (float)(e.y + e.size);
-                if (fabsf(cx - sx) > e.size * 0.5f + 6.0f) continue;
-                if (bottom > base + 8.0f || bottom < base - 4.0f * e.size - 8.0f) continue;
+                /* sprites in the right widescreen extension have 9-bit x
+                 * 256.. and read back as x - 512 */
+                if (cx < -64.0f) cx += 512.0f;
+                if (fabsf(cx - sx) > e.size * 0.5f + 8.0f) continue;
+                if (bottom > base + 10.0f || bottom < base - 4.0f * e.size - 10.0f) continue;
+                if (s_pipe_pal < 0) {          /* learning: a vote per matching sprite */
+                    if (++s_pal_votes[e.palette] >= 24) s_pipe_pal = e.palette;
+                    continue;
+                }
                 hide[n >> 3] |= (uint8_t)(1 << (n & 7));
+                if (e.size > best_size) { best = e; best_size = e.size; }
             }
         }
     }
     snesrecomp_set_obj_hide(hide);
+    /* colours from the nearest (largest) pipe sprite, once per track */
+    if (!s_col_sampled && best_size >= 16) sample_colours(&best);
 }
 
 /* Tube along Z with caps, flat-shaded sides via per-vertex radial normals. */
@@ -124,14 +199,14 @@ static void tube(float *v, int *nv, uint16_t *ix, int *ni, float r, float z0, fl
 }
 
 static void ensure_mesh(void) {
-    if (s_mesh) return;
+    if (s_mesh && !s_mesh_dirty) return;
+    if (s_mesh) { scene3d_mesh_destroy(s_mesh); s_mesh = NULL; }
+    s_mesh_dirty = false;
     static float v[200 * 9];
     static uint16_t ix[600];
     int nv = 0, ni = 0;
-    static const float body[3]  = { 0.10f, 0.62f, 0.16f };
-    static const float rim[3]   = { 0.16f, 0.80f, 0.22f };
-    static const float rim_top[3] = { 0.20f, 0.85f, 0.25f };
-    static const float hole[3]  = { 0.01f, 0.12f, 0.03f };
+    const float *body = s_col[0], *rim = s_col[1], *hole = s_col[2];
+    float rim_top[3] = { fminf(rim[0] * 1.08f, 1.0f), fminf(rim[1] * 1.08f, 1.0f), fminf(rim[2] * 1.08f, 1.0f) };
     tube(v, &nv, ix, &ni, PIPE_RADIUS, 0.0f, PIPE_HEIGHT, body, body);
     tube(v, &nv, ix, &ni, RIM_RADIUS, PIPE_HEIGHT, PIPE_HEIGHT + RIM_HEIGHT, rim, rim_top);
     tube(v, &nv, ix, &ni, RIM_RADIUS * 0.72f, PIPE_HEIGHT + RIM_HEIGHT, PIPE_HEIGHT + RIM_HEIGHT + 0.02f,
@@ -140,21 +215,20 @@ static void ensure_mesh(void) {
 }
 
 void neo_pipes_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) {
-    if (!s_pipes3d || s_npipes == 0) return;
+    if (!s_pipes3d || s_npipes == 0 || s_pipe_pal < 0) return;
     ensure_mesh();
     static const float light[3] = { 0.35f, 0.55f, -1.0f };
     int nchase = 0;
     for (int bi = 0; bi < v->nbands; bi++) {
         const M7Band *b = &v->band[bi];
         if (!b->chase) continue;
-        int player = nchase++;
+        nchase++;
         int l0, l1;
         if (!neo_band_lines(v, b, 0, &l0, &l1)) continue;
         float clip[16];
         m7view_clip_matrix(v, b, M7VIEW_NEAR_Z, M7VIEW_FAR_Z, clip);
         scene3d_clip_lines(f, l0, l1);
         scene3d_begin(clip, light);
-        scene3d_near_cut(neo_view_cut(b, w, player));
         float br = b->brightness;
         float tint[4] = { 1.15f * br, 1.15f * br, 1.15f * br, 1.0f };
         for (int i = 0; i < s_npipes; i++) {

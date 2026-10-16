@@ -45,24 +45,26 @@ void neo_gameplay_register_options(void);
 /* Mini-turbo state for drawing sparks: stage 0 none, 1 yellow, 2 orange. */
 void neo_gameplay_spark_state(int player, int *stage, int *dir, int *boosting);
 
-/* Scanlines of the presented picture a band's 3D may draw on; `overhang`
- * extra lines below the band in the native layout (karts poke out a little).
- * Returns false if the band isn't presented. */
+/* Scanlines of the presented picture a band's 3D may draw on (down from the
+ * top of the player's view, so objects near the horizon can stick up past
+ * it); `overhang` extra lines below the band in the native layout (karts poke
+ * out a little). Returns false if the band isn't presented. */
 static inline bool neo_band_lines(const M7View *v, const M7Band *b, int overhang,
                                   int *l0, int *l1) {
-    *l0 = b->draw_line0;
+    /* from the top of this view: 3D near the horizon sticks up over the
+     * scenery strip (full-screen: the real picture's first visible line;
+     * a lower split band: below the band above it) */
+    int idx = (int)(b - v->band);
+    if (v->layout == M7_LAYOUT_FULLSCREEN) *l0 = v->top_skip + 1 + v->line_offset;
+    else if (idx <= 0) *l0 = 1;
+    else {
+        *l0 = b->draw_line0 - 40;
+        if (*l0 <= v->band[idx - 1].line1) *l0 = v->band[idx - 1].line1 + 1;
+    }
+    if (*l0 > b->draw_line0) *l0 = b->draw_line0;
     *l1 = b->draw_line1 + (v->layout == M7_LAYOUT_NATIVE ? overhang : 0);
     if (*l1 > v->lines) *l1 = v->lines;
     return *l1 >= *l0;
-}
-
-/* Depth in front of which solid track objects (walls, pipes) are left out so
- * they never hide the player's kart: just short of the kart this band follows
- * (chase bands are in player order). */
-static inline float neo_view_cut(const M7Band *b, const NeoWorld *w, int player) {
-    const NeoRacer *r = &w->racer[player >= 0 && player < SMK_RACER_COUNT ? player : 0];
-    float kd = (r->x - b->cam[0]) * b->fwd[0] + (r->y - b->cam[1]) * b->fwd[1];
-    return kd - 4.0f;
 }
 
 /* 3D item boxes over the "?" panels (draws into the current scene hook). */

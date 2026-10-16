@@ -145,6 +145,9 @@ void snesrecomp_set_m7_override(const uint16_t *cells);
  * kept); entries in `front` (screen-space sprites such as Lakitu, banners or
  * the HUD) are drawn in front of all 3D. Either mask may be NULL. */
 void snesrecomp_set_sprite_layer(bool enabled, const uint8_t exclude[16], const uint8_t front[16]);
+/* Sprites using these palettes (bit per OBJ palette) are drawn in front of
+ * all 3D as well, whatever OAM entry they sit in (screen text, menus). */
+void snesrecomp_set_sprite_front_palettes(uint8_t mask);
 
 /* The separated sprite layer of the most recently submitted frame (cols x
  * lines RGBA: rgb + the sprite's bottom scanline, 0 = no sprite, 255 = in
@@ -161,6 +164,9 @@ typedef struct {
     int  size;          /* width = height in pixels */
 } SnesOamEntry;
 void snesrecomp_read_oam(int index, SnesOamEntry *out);
+/* Colour index (0..15) of pixel (x, y) of a sprite whose top-left tile is
+ * `tile` (0..511), as the PPU addresses it. */
+int snesrecomp_obj_pixel(int tile, int x, int y);
 
 /* Called before every frame is rendered (presentation set-up: OAM then holds
  * what that frame will show). */

@@ -145,6 +145,8 @@ static const char *kSpriteFS =
     "uniform vec4 u_band[4];\n"       /* line0, line1, horizon, focal * height */
     "uniform int u_nbands;\n"
     "uniform vec2 u_depth;\n"         /* ndc z = x - y / depth */
+    "uniform vec4 u_front[4];\n"      /* per band: the player's kart box (picture) */
+    "uniform vec4 u_front_bottom;\n"  /* ... and its bottom line (0 = none) */
     "void main() {\n"
     "    vec2 q = vec2(gl_FragCoord.x / u_target.x * u_pic.x,\n"
     "                  (u_target.y - gl_FragCoord.y) / u_target.y * u_pic.y - u_offset) - 0.5;\n"
@@ -163,11 +165,18 @@ static const char *kSpriteFS =
     "    }\n"
     "    if (cov < 0.02) discard;\n"
     "    float z = -1.0;\n"                /* in front unless on a band's ground */
+    "    bool player = false;\n"            /* the player's own kart: never hidden */
+    "    for (int b = 0; b < 4; b++) {\n"
+    "        if (b >= u_nbands) break;\n"
+    "        vec4 F = u_front[b];\n"
+    "        if (u_front_bottom[b] > 0.0 && q.x >= F.x && q.x <= F.z && q.y >= F.y && q.y <= F.w &&\n"
+    "            bottom >= F.y && bottom <= u_front_bottom[b] + 4.0) player = true;\n"
+    "    }\n"
     "    for (int b = 0; b < 4; b++) {\n"
     "        if (b >= u_nbands) break;\n"
     "        vec4 B = u_band[b];\n"
     "        float dv = bottom - B.z;\n"
-    "        if (bottom >= B.x && bottom <= B.y + 16.0 && dv > 0.5) {\n"
+    "        if (!player && bottom >= B.x && bottom <= B.y + 16.0 && dv > 0.5) {\n"
     "            z = u_depth.x - u_depth.y / (B.w / dv);\n"
     "            break;\n"
     "        }\n"
@@ -200,7 +209,7 @@ static struct {
            f_fhy, f_ext, f_outside;
     GLuint tex_tilemap, tex_chars, tex_pal;
     Pass   spr;
-    GLint  s_spr, s_target, s_pic, s_offset, s_band, s_nbands, s_depth;
+    GLint  s_spr, s_target, s_pic, s_offset, s_band, s_nbands, s_depth, s_front, s_front_bottom;
     GLuint tex_spr;
 } R;
 
@@ -209,6 +218,15 @@ static uint8_t s_spr_px[(256 + 2 * 64) * 4 * 239];
 static int     s_spr_cols = 0, s_spr_lines = 0, s_spr_offset = 0, s_spr_nbands = 0;
 static RendererSpriteBand s_spr_band[4];
 static bool    s_spr_dirty = false, s_spr_drawn = false;
+static float   s_front_box[4][4];       /* per band: player's kart box, picture coords */
+static float   s_front_bottom[4];
+
+void renderer_set_sprite_front_box(int band, float x0, float y0, float x1, float y1, float bottom) {
+    if (band < 0 || band > 3) return;
+    s_front_box[band][0] = x0; s_front_box[band][1] = y0;
+    s_front_box[band][2] = x1; s_front_box[band][3] = y1;
+    s_front_bottom[band] = bottom;
+}
 
 void renderer_set_sprites(const uint8_t *pixels, int cols, int lines, int line_offset,
                           const RendererSpriteBand *bands, int nbands) {
@@ -394,6 +412,8 @@ bool renderer_init(void) {
     R.s_band   = glGetUniformLocation(R.spr.prog, "u_band");
     R.s_nbands = glGetUniformLocation(R.spr.prog, "u_nbands");
     R.s_depth  = glGetUniformLocation(R.spr.prog, "u_depth");
+    R.s_front  = glGetUniformLocation(R.spr.prog, "u_front");
+    R.s_front_bottom = glGetUniformLocation(R.spr.prog, "u_front_bottom");
     R.tex_spr  = make_texture(256 + 2 * 64, 240, GL_NEAREST, NULL);
     s_spr_dirty = true;
     R.f_tilemap = glGetUniformLocation(R.floor.prog, "u_tilemap");
@@ -597,7 +617,8 @@ void renderer_draw_sprites(void) {
             if (s_spr_band[i].line1 > l1) l1 = s_spr_band[i].line1;
         }
         l1 += 9;                  /* native layout: karts overhang the band */
-        int top = (int)((float)(l0 - 2 + s_spr_offset) / s_spr_lines * R.int_h);
+        (void)l0;                 /* screen-space sprites above the band count too */
+        int top = (int)((float)(s_spr_offset) / s_spr_lines * R.int_h);
         int bot = (int)((float)(l1 + s_spr_offset) / s_spr_lines * R.int_h + 1.0f);
         if (top < 0) top = 0;
         if (bot > R.int_h) bot = R.int_h;
@@ -628,6 +649,9 @@ void renderer_draw_sprites(void) {
         band[i * 4 + 3] = s_spr_band[i].focal_height;
     }
     glUniform4fv(R.s_band, 4, band);
+    glUniform4fv(R.s_front, 4, &s_front_box[0][0]);
+    glUniform4f(R.s_front_bottom, s_front_bottom[0], s_front_bottom[1], s_front_bottom[2], s_front_bottom[3]);
+    memset(s_front_bottom, 0, sizeof(s_front_bottom));   /* set again each frame */
     glUniform1i(R.s_nbands, s_spr_nbands);
     const float n = M7VIEW_NEAR_Z, f = M7VIEW_FAR_Z;
     glUniform2f(R.s_depth, (f + n) / (f - n), 2.0f * f * n / (f - n));

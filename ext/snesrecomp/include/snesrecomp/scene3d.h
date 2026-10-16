@@ -70,6 +70,10 @@ void scene3d_end(void);
  * tested against the 3D drawn so far; call after the 3D objects and before
  * any 2D overlay. Without this call it is drawn after the hook. */
 void scene3d_sprites(void);
+/* Before scene3d_sprites: the player's kart in chase band `band` sits in this
+ * picture box (columns x0..x1, lines y0..y1) with its base on line `bottom`;
+ * its sprite is drawn in front of all 3D (walls between it and the camera). */
+void scene3d_sprites_front_box(int band, float x0, float y0, float x1, float y1, float bottom);
 
 /* ---- 2D overlay (HUD) in internal-target pixels, origin top-left ---- */
 /* RGBA texture, nearest filtered (pixel art); update with w*h*4 bytes. */

@@ -98,6 +98,10 @@ void renderer_set_sprites(const uint8_t *pixels, int cols, int lines, int line_o
 /* Draw it into the bound internal target, depth-tested against the 3D layer
  * (once per frame; later calls do nothing). */
 void renderer_draw_sprites(void);
+/* The player's kart in band `band` (chase-band order): its sprite pixels in
+ * this picture box (and ending at `bottom`) are drawn in front of all 3D.
+ * Cleared after every frame. */
+void renderer_set_sprite_front_box(int band, float x0, float y0, float x1, float y1, float bottom);
 
 /* Separated HUD layer for the next present (RGBA + class per pixel, cols x
  * lines; NULL: none) and the texture it lands in (0 when absent). */

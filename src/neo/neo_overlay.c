@@ -188,6 +188,27 @@ static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) 
     if (full && s_minimap) neo_minimap_draw(f, v, w, tw - m, bottom, th * 0.30f);
 }
 
+/* The player's own kart stays in front of walls / pipes between it and the
+ * camera: tell the sprite layer where it is (chase bands are in player order,
+ * player n = racer n). */
+static void player_front_boxes(const M7View *v, const NeoWorld *w) {
+    int p = 0;
+    for (int bi = 0; bi < v->nbands && p < 2; bi++) {
+        const M7Band *b = &v->band[bi];
+        if (!b->chase) continue;
+        const NeoRacer *r = &w->racer[p];
+        float col, line;
+        if (m7view_project(v, b, r->x, r->y, 0.0f, &col, &line)) {
+            float depth = (r->x - b->cam[0]) * b->fwd[0] + (r->y - b->cam[1]) * b->fwd[1];
+            float px = b->focal / (depth > 1.0f ? depth : 1.0f);
+            float base = line + 0.5f - (v->layout == M7_LAYOUT_FULLSCREEN ? v->line_offset : 0);
+            scene3d_sprites_front_box(p, col - 8.0f * px, base - 14.0f * px, col + 8.0f * px,
+                                      base + 3.0f, base);
+        }
+        p++;
+    }
+}
+
 static void neo_scene(const Scene3DFrame *f, void *user) {
     (void)user;
     const M7View *v = snesrecomp_m7_view();
@@ -203,6 +224,7 @@ static void neo_scene(const Scene3DFrame *f, void *user) {
         if (s_itemboxes) neo_itembox_draw(f, v, frames / 60.0f);
         draw_player_fx(f, v, &w);
         if (s_markers) draw_markers(f, v, &w);
+        player_front_boxes(v, &w);
         scene3d_sprites();      /* karts and track objects, depth-sorted with the 3D */
     }
     /* the separated HUD (also on the frame the race ends, while the
@@ -238,6 +260,7 @@ void neo_overlay_sync(bool in_race) {
     if (applied != (int)in_race) { configure_hud(in_race); applied = in_race; }
     bool any3d = s_itemboxes || s_markers || neo_track_coins_enabled() || neo_track_walls_enabled();
     snesrecomp_set_sprite_layer(in_race && any3d, NULL, k_front_oam);
+    snesrecomp_set_sprite_front_palettes(1 << 4);   /* palette 4: SMK's text (HUD, banners, pause menu) */
     static int anchors = -1;
     int want = in_race && s_ui_anchor;
     if (want != anchors) {

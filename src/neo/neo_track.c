@@ -162,7 +162,8 @@ static void ensure_coin_mesh(void) {
 
 static bool hidden_beh(uint8_t beh) {
     return (beh == SMK_TILE_COIN && s_coins3d) ||
-           (beh == SMK_TILE_ITEM_PANEL && neo_track_hides_panels());
+           (beh == SMK_TILE_ITEM_PANEL && neo_track_hides_panels()) ||
+           (beh == SMK_TILE_BARRIER && s_walls3d);   /* the flat art under 3D walls */
 }
 
 /* Road tile to show instead of a coin / panel. Road art is often striped
@@ -173,7 +174,8 @@ static bool visible_tile(int x, int y, uint8_t *t) {
     if (x < 0 || y < 0 || x > 127 || y > 127) return false;
     *t = s_tile[y * 128 + x];
     uint8_t b = s_beh[*t];
-    return b != SMK_TILE_COIN && b != SMK_TILE_ITEM_PANEL && !s_was_panel[y * 128 + x];
+    return b != SMK_TILE_COIN && b != SMK_TILE_ITEM_PANEL && b != SMK_TILE_BARRIER &&
+           !s_was_panel[y * 128 + x];
 }
 
 static uint8_t replacement_tile(int tx, int ty) {
@@ -182,7 +184,7 @@ static uint8_t replacement_tile(int tx, int ty) {
     int dist[4];
     for (int d = 0; d < 4; d++) {
         dist[d] = 99;
-        for (int k = 1; k <= 4; k++) {
+        for (int k = 1; k <= 6; k++) {
             if (visible_tile(tx + dir[d][0] * k, ty + dir[d][1] * k, &t[d])) { dist[d] = k; break; }
         }
     }
@@ -219,7 +221,7 @@ static void rebuild(void) {
 /* Called once per frame after it ran: rescan the tilemap and set the
  * override for the next frame. */
 void neo_track_update(bool in_race) {
-    static int last_coins = -1, last_panels = -1;
+    static int last_coins = -1, last_panels = -1, last_walls = -1;
     int hide_panels = neo_track_hides_panels();
     neo_overlay_sync(in_race);
     if (!in_race) {
@@ -236,7 +238,7 @@ void neo_track_update(bool in_race) {
         memset(s_was_panel, 0, sizeof(s_was_panel));
     for (int i = 0; i < 128 * 128; i++)
         if (beh[tile[i]] == SMK_TILE_ITEM_PANEL) s_was_panel[i] = 1;
-    if (changed || last_coins != s_coins3d || last_panels != hide_panels) {
+    if (changed || last_coins != s_coins3d || last_panels != hide_panels || last_walls != s_walls3d) {
         /* walls only change with the barrier layout */
         if (!s_valid || memcmp(beh, s_beh, sizeof(beh)) != 0) s_walls_dirty = true;
         else {
@@ -250,6 +252,7 @@ void neo_track_update(bool in_race) {
         s_valid = true;
         last_coins = s_coins3d;
         last_panels = hide_panels;
+        last_walls = s_walls3d;
         rebuild();
     }
     snesrecomp_set_m7_override(s_override_on ? s_override : NULL);
@@ -357,7 +360,7 @@ void neo_track_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w, f
     for (int bi = 0; bi < v->nbands; bi++) {
         const M7Band *b = &v->band[bi];
         if (!b->chase) continue;
-        int player = nchase++;
+        nchase++;
         int l0, l1;
         if (!neo_band_lines(v, b, 0, &l0, &l1)) continue;
         float clip[16];
@@ -367,9 +370,7 @@ void neo_track_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w, f
         float br = b->brightness;
         if (walls) {
             float tint[4] = { br, br, br, 1.0f };
-            scene3d_near_cut(neo_view_cut(b, w, player));
             for (int i = 0; i < s_nwall_meshes; i++) scene3d_draw(s_wall_mesh[i], ident, tint);
-            scene3d_near_cut(0.0f);
         }
         if (coins) {
             Coin vis[MAX_COINS];
