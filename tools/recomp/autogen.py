@@ -8,7 +8,7 @@ emulation oracle (tools/diff_snapshots.py vs lakesnes_ref).
 
 Inspired by SuperRecomp's per-opcode codegen, but emitting OUR runtime (g_cpu +
 bus_read/write + op_* helpers) and seeded with trace-exact entry flags — the two
-assets SuperRecomp/mstan lack (docs/own_recompiler_design.md).
+assets other SNES recompilers lack.
 
 v2 handles:
   - loads/stores/STZ across addressing modes (imm/dp/dp,x/dp,y/abs/abs,x/abs,y/

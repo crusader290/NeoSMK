@@ -54,21 +54,12 @@ tools/mesen/Mesen.zip
 tools/mesen/*.log
 tools/mesen/*.txt
 
-# Debug/diagnostic artifacts at repo root (PPU/OAM dumps, screenshots, scratch logs)
-# Produced by SMK_DUMP_PREFIX runs and ad-hoc debugging. Anchored to root only.
+# Debug/diagnostic artifacts at the repo root (screenshots, PPU/OAM dumps, logs)
 /*.bmp
 /*.log
 /*.png
-!/title.png
-!/titlewithchar.png
-!/mode7_race.png
-!/driver_select.png
-!/newtitle.png
-!/charselect.png
-!/class.png
-!/mp.png
-!/race.png
-!/race2.png
+/*.txt
+/mpdump_*.bin
 
 # Runtime user config (written by the ImGui menu)
 smk_config.ini
