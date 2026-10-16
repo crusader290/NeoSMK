@@ -6,7 +6,37 @@ installing. **No ROM is included:** put your own US v1.0 dump
 (MD5 `7f25ce5a283d902694c52fb1152fa61a`) next to the executable as
 `Super Mario Kart (USA).sfc`, or pass its path as the first argument.
 
-## v0.5.0 (latest, Windows only)
+## v0.6.0 (latest, Windows only)
+
+Built from commit `df13877` (SDL 3.2.30, Dear ImGui 1.91.9b, MinGW-w64 GCC 13, static runtime).
+Checksum in [`v0.6.0/SHA256SUMS`](v0.6.0/SHA256SUMS). No Linux or Raspberry Pi 4 builds for
+this version; use v0.4.0 there or build from source.
+
+| File | Platform |
+|---|---|
+| [`neosmk-windows-x64.zip`](v0.6.0/neosmk-windows-x64.zip) | Windows 10/11 x64 |
+
+**New since v0.5.0:**
+
+- **Netplay fixed and hardened.** The game no longer ignores your pads while the mouse is over a
+  menu window. The peers compare a state checksum every 30 frames and both report it if the
+  games ever go out of sync. The host's MK64 mini-turbo setting is copied to the client. If the
+  host's state can't be loaded (different version or ROM), the client disconnects with a clear
+  message. File → New / Load (and F8) are disabled while connected. Both players need this same
+  version.
+- **3D objects and horizon:** walls and objects near the horizon aren't cut off; the flat
+  barrier art under 3D walls no longer shows; walls aren't cut near the camera (your kart is
+  drawn in front of them instead).
+- **Pipes:** coloured from each track's own pipe sprite (copper on Donut Plains); their flat
+  sprites are hidden on every track; they no longer vanish up close.
+- **Sprites over 3D:** Lakitu carrying the lap sign stays visible while flying up; the pause
+  menu and results text are drawn in front of coins and item boxes.
+- **Ghost Valley:** no red stripes in the widescreen side areas.
+
+**Not tested:** this package was built but not run. Netplay was tested between two copies on one
+Linux machine (a full 2-player race, identical on both); not yet between two PCs.
+
+## v0.5.0 (Windows only)
 
 Built from commit `dd1a091` (SDL 3.2.30, Dear ImGui 1.91.9b, MinGW-w64 GCC 13, static runtime).
 Checksum in [`v0.5.0/SHA256SUMS`](v0.5.0/SHA256SUMS). Linux and Raspberry Pi 4 builds for this
