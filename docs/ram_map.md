@@ -67,13 +67,3 @@ The camera heading lags the kart's heading slightly while turning (the game smoo
 
 - item slot and roulette state
 - object table for shells, bananas and other track objects
-
-## Sound CPU (SPC700) RAM
-
-Read through `snesrecomp_apu_ram()`; used by the custom race music (`src/neo/neo_music.c`).
-
-| Address | Meaning | Evidence |
-|---|---|---|
-| `$04` | song slot of the loaded sound bank: in a race 1 while loading, 3 for the countdown tune, 4 for the course music | logged through title, menus and a race; changes exactly when the music does |
-| `$1A` | voices playing sound effects, one bit per DSP voice (bit 7 = the engine) | set while a voice plays a non-music sample (engine, item sounds, menu blips), clear while it plays music |
-

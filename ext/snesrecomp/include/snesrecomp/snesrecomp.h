@@ -168,23 +168,6 @@ void snesrecomp_set_input_filter(SnesInputFilter fn, void *user);
  * overwritten, so both peers simulate the same rules. NULL clears. */
 void snesrecomp_netplay_share(void *data, int size);
 
-/* Audio (presentation only). Voices in `voices` (bit per DSP channel) are left
- * out of the audio output, except those whose bit is set in the sound CPU's
- * RAM byte `keep_addr` at that moment (-1 = none; e.g. the driver's mask of
- * voices playing sound effects). The emulated mix, the echo data in APU RAM
- * and save-states are unaffected. voices = 0: everything audible. */
-void snesrecomp_set_music_mask(uint8_t voices, int keep_addr);
-/* Key-on count per DSP voice since start (for telling music from effects). */
-void snesrecomp_voice_keyons(uint32_t out[8]);
-/* Read a byte of the sound CPU's RAM (e.g. the playing song). */
-uint8_t snesrecomp_apu_ram(uint16_t addr);
-/* Last value the game wrote to sound port n ($2140 + n), as the sound CPU sees it. */
-uint8_t snesrecomp_apu_port(int port);
-/* Called with each frame's audio (interleaved stereo int16, `rate` Hz) before
- * it is queued, so a game can mix in its own sound. */
-typedef void (*SnesAudioHook)(int16_t *stereo, int frames, int rate, void *user);
-void snesrecomp_set_audio_hook(SnesAudioHook hook, void *user);
-
 /* One OAM entry as the PPU will draw it. */
 typedef struct {
     int  x, y;          /* x: -256..255 (9-bit, sign-extended); y: 0..255 */

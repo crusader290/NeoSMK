@@ -102,10 +102,6 @@ void neo_items_tick(bool enabled, int frame);
  * target px and the size of one HUD pixel. Inside a scene3d_ui block. */
 void neo_items_draw_hud(float x, float y, float px_w, float px_h);
 
-/* Custom race music from music/*.mp3 (Sound menu). */
-void neo_music_register_options(void);
-void neo_music_install(void);
-
 /* Install the 3D overlay hook. Call after snesrecomp_init. */
 void neo_install(void);
 

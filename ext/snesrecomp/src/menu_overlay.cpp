@@ -500,34 +500,6 @@ static void draw_controller_window(void) {
     ImGui::End();
 }
 
-static void menu_toggle(const char *label, const char *shortcut, int *v);
-
-static bool is_builtin_menu(const char *name) {
-    static const char *const k[] = { "File", "Graphics", "Sound", "Controller", "Multiplayer", "Help" };
-    for (const char *m : k) if (!strcmp(m, name)) return true;
-    return false;
-}
-
-static bool has_game_options(const char *menu) {
-    for (int i = 0; i < g_nopts; i++) if (!strcmp(g_opts[i].menu, menu)) return true;
-    return false;
-}
-
-static void draw_game_options(const char *menu) {
-    for (int j = 0; j < g_nopts; j++) {
-        GameOption &o = g_opts[j];
-        if (strcmp(o.menu, menu)) continue;
-        if (o.max <= 1) {
-            menu_toggle(o.label, NULL, o.value);
-        } else if (ImGui::BeginMenu(o.label)) {
-            for (int c = 0; c <= o.max; c++)
-                if (ImGui::MenuItem(o.choices[c], NULL, *o.value == c)) *o.value = c;
-            ImGui::EndMenu();
-        }
-        if (o.tooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", o.tooltip);
-    }
-}
-
 static void draw_multiplayer_window(void) {
     ImGui::SetNextWindowSize(ImVec2(380, 280), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Multiplayer (netplay)", &g.show_mp)) {
@@ -670,7 +642,6 @@ static void draw_menubar(void) {
         ImGui::SetNextItemWidth(140);
         ImGui::SliderFloat("Volume", &g.volume, 0.0f, 1.0f, "%.2f");
         ImGui::MenuItem("Mute", NULL, &g.mute);
-        if (has_game_options("Sound")) { ImGui::Separator(); draw_game_options("Sound"); }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Controller")) {
@@ -683,13 +654,23 @@ static void draw_menubar(void) {
         ImGui::TextDisabled("%s", mp_status_text());
         ImGui::EndMenu();
     }
-    /* game-registered menus, in registration order (options registered under
-     * a built-in menu's name are shown inside that menu instead) */
+    /* game-registered menus, in registration order */
     for (int i = 0; i < g_nopts; i++) {
         bool first = true;
         for (int j = 0; j < i; j++) if (!strcmp(g_opts[j].menu, g_opts[i].menu)) first = false;
-        if (!first || is_builtin_menu(g_opts[i].menu) || !ImGui::BeginMenu(g_opts[i].menu)) continue;
-        draw_game_options(g_opts[i].menu);
+        if (!first || !ImGui::BeginMenu(g_opts[i].menu)) continue;
+        for (int j = i; j < g_nopts; j++) {
+            GameOption &o = g_opts[j];
+            if (strcmp(o.menu, g_opts[i].menu)) continue;
+            if (o.max <= 1) {
+                menu_toggle(o.label, NULL, o.value);
+            } else if (ImGui::BeginMenu(o.label)) {
+                for (int c = 0; c <= o.max; c++)
+                    if (ImGui::MenuItem(o.choices[c], NULL, *o.value == c)) *o.value = c;
+                ImGui::EndMenu();
+            }
+            if (o.tooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", o.tooltip);
+        }
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Help")) {
