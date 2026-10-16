@@ -28,22 +28,27 @@ static const char *kMeshVS =
     "uniform vec4 u_tint;\n"
     "out vec3 v_col;\n"
     "out vec3 v_nrm;\n"
+    "out float v_depth;\n"
     "void main() {\n"
     "    vec3 n = normalize(mat3(u_model) * a_nrm);\n"
     "    float diff = max(dot(n, -u_light), 0.0);\n"
     "    v_col = a_col * u_tint.rgb * (0.42 + 0.68 * diff);\n"
     "    v_nrm = n;\n"
     "    gl_Position = u_clip * (u_model * vec4(a_pos, 1.0));\n"
+    "    v_depth = gl_Position.w;\n"
     "}\n";
 
 static const char *kMeshFS =
     "in vec3 v_col;\n"
     "in vec3 v_nrm;\n"
+    "in float v_depth;\n"
     "out vec4 o_color;\n"
     "uniform vec3 u_light;\n"
     "uniform vec3 u_eye;\n"
     "uniform vec4 u_tint;\n"
+    "uniform float u_cut;\n"
     "void main() {\n"
+    "    if (v_depth < u_cut) discard;\n"
     "    vec3 n = normalize(v_nrm);\n"
     "    float spec = pow(max(dot(reflect(u_light, n), u_eye), 0.0), 24.0);\n"
     "    o_color = vec4(v_col + vec3(0.30 * spec), u_tint.a);\n"
@@ -96,8 +101,10 @@ static const char *kUiFS =
     "void main() {\n"
     "    if (u_mode == 2) {\n"
     "        vec4 t = texture(u_mask, v_uv);\n"
-    "        if ((int(t.a * 255.0 + 0.5) & 15) != u_class) discard;\n"
-    "        o_color = vec4(t.rgb, u_fill.a);\n"
+    "        int a = int(t.a * 255.0 + 0.5);\n"
+    "        bool under = u_class == 3 && (a & 64) != 0;\n"   /* math under a HUD sprite */
+    "        if ((a & 15) != u_class && !under) discard;\n"
+    "        o_color = vec4((a & 15) == u_class ? t.rgb : u_edge.rgb, u_fill.a);\n"
     "        return;\n"
     "    }\n"
     "    if (u_mode == 0) {\n"
@@ -126,7 +133,7 @@ static struct {
 static struct {
     bool   ready;
     GLuint mesh_prog, blob_prog;
-    GLint  m_clip, m_model, m_light, m_tint, m_eye;
+    GLint  m_clip, m_model, m_light, m_tint, m_eye, m_cut;
     GLint  b_clip, b_blob, b_alpha;
     GLuint blob_vao, blob_vbo;
     float  clip[16];
@@ -145,6 +152,7 @@ bool scene3d_init(void) {
     S.m_light = glGetUniformLocation(S.mesh_prog, "u_light");
     S.m_tint  = glGetUniformLocation(S.mesh_prog, "u_tint");
     S.m_eye   = glGetUniformLocation(S.mesh_prog, "u_eye");
+    S.m_cut   = glGetUniformLocation(S.mesh_prog, "u_cut");
     S.b_clip  = glGetUniformLocation(S.blob_prog, "u_clip");
     S.b_blob  = glGetUniformLocation(S.blob_prog, "u_blob");
     S.b_alpha = glGetUniformLocation(S.blob_prog, "u_alpha");
@@ -347,6 +355,12 @@ void scene3d_begin(const float clip[16], const float light_dir[3]) {
     float ex = S.clip[3], ey = S.clip[7];
     float el = sqrtf(ex * ex + ey * ey);
     glUniform3f(S.m_eye, el > 0 ? -ex / el : 0, el > 0 ? -ey / el : 0, 0.0f);
+    glUniform1f(S.m_cut, 0.0f);
+}
+
+void scene3d_near_cut(float depth) {
+    glUseProgram(S.mesh_prog);
+    glUniform1f(S.m_cut, depth);
 }
 
 void scene3d_draw(const Scene3DMesh *m, const float model[16], const float tint[4]) {
@@ -375,6 +389,11 @@ void scene3d_blob_shadow(float x, float y, float radius, float alpha) {
 void scene3d_end(void) {
     glDisable(GL_BLEND);
     glDisable(GL_SCISSOR_TEST);
+    glBindVertexArray(0);
+}
+
+void scene3d_sprites(void) {
+    renderer_draw_sprites();
     glBindVertexArray(0);
 }
 
@@ -509,6 +528,7 @@ void scene3d_ui_hud(int cls, float x, float y, float scale) {
     glUniform1i(U.u_mode, 2);
     glUniform1i(U.u_class, cls);
     glUniform4f(U.u_fill, 1.0f, 1.0f, 1.0f, alpha);
+    glUniform4f(U.u_edge, hf->math_rgb[0] / 255.0f, hf->math_rgb[1] / 255.0f, hf->math_rgb[2] / 255.0f, 1.0f);
     glUniform4f(U.u_uv, (u0 + u1) * 0.5f, (v0 + v1) * 0.5f, u1, v1);
     ui_quad(x, y, w, h);
     glBlendEquation(GL_FUNC_ADD);

@@ -51,9 +51,18 @@ void scene3d_clip_lines(const Scene3DFrame *f, int line0, int line1);
 /* Begin a batch with a clip matrix; light_dir points from the light (world). */
 void scene3d_begin(const float clip[16], const float light_dir[3]);
 void scene3d_draw(const Scene3DMesh *m, const float model[16], const float tint[4]);
+/* Leave out mesh pixels nearer than `depth` (world units in front of the
+ * camera) until the next scene3d_begin; 0 = off. Keeps walls between the
+ * camera and the kart from blocking the view. */
+void scene3d_near_cut(float depth);
 /* Soft dark disc on the ground at (x, y), radius in world units. */
 void scene3d_blob_shadow(float x, float y, float radius, float alpha);
 void scene3d_end(void);
+
+/* Draw the separated sprite layer (snesrecomp_set_sprite_layer) now, depth-
+ * tested against the 3D drawn so far; call after the 3D objects and before
+ * any 2D overlay. Without this call it is drawn after the hook. */
+void scene3d_sprites(void);
 
 /* ---- 2D overlay (HUD) in internal-target pixels, origin top-left ---- */
 typedef struct Scene3DTex Scene3DTex;

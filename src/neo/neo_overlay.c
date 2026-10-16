@@ -127,20 +127,18 @@ static void draw_player_fx(const Scene3DFrame *f, const M7View *v, const NeoWorl
  * numeral is window-shaped colour math (fixed colour added inside colour
  * windows 1 | 2, reshaped per line by HDMA). */
 static void configure_hud(void) {
-    if (!s_mk8_hud) { snesrecomp_set_hud_config(NULL); return; }
     SnesHudConfig c;
     memset(&c, 0, sizeof(c));
     c.obj_mask[16 >> 3] = 0xFF;          /* OAM 16..23 */
     c.bg_mask = 1 << 1;                  /* BG2 */
     c.window_math = true;
+    c.separate = s_mk8_hud != 0;     /* off: the HUD stays in the picture */
     snesrecomp_set_hud_config(&c);
 }
 
 /* Mario Kart 8 placement: timer top right, lives / coins bottom left, a big
  * position numeral bottom right with the circuit map above it. */
 static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) {
-    static int applied = -1;
-    if (applied != s_mk8_hud) { configure_hud(); applied = s_mk8_hud; }
     float tw = (float)f->target_w, th = (float)f->target_h;
     float m = th * 0.03f;
     float bottom = th - m;
@@ -151,10 +149,24 @@ static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) 
             scene3d_ui_hud(SNES_HUD_BG, tw - m - wd, m, 1.0f);
         if (scene3d_ui_hud_size(SNES_HUD_OBJ, 1.25f, &wd, &ht))
             scene3d_ui_hud(SNES_HUD_OBJ, m, th - m - ht, 1.25f);
-        if (scene3d_ui_hud_size(SNES_HUD_MATH, 2.0f, &wd, &ht)) {
-            scene3d_ui_hud(SNES_HUD_MATH, tw - m - wd, th - m - ht, 2.0f);
-            bottom = th - m - ht - m * 0.5f;
+        /* Position numeral. SMK zooms it briefly when the place changes and
+         * blows it up at the finish; keep it at its steady height so it
+         * stays in the corner (the circuit map sits on top of it). */
+        static float steady_h = 0.0f, last_h = 0.0f;
+        static int stable = 0;
+        float ht1;
+        if (scene3d_ui_hud_size(SNES_HUD_MATH, 1.0f, NULL, &ht1)) {
+            stable = fabsf(ht1 - last_h) < 0.5f ? stable + 1 : 0;
+            last_h = ht1;
+            /* adopt a height once it has held for a while (a new glyph); never
+             * one far above the normal size (the finish zoom can last) */
+            if (ht1 < th * 0.12f && (steady_h == 0.0f || stable >= 30)) steady_h = ht1;
+            float target = steady_h > 0.0f ? steady_h : th * 0.06f;
+            float scale = 2.0f * target / ht1;
+            scene3d_ui_hud_size(SNES_HUD_MATH, scale, &wd, &ht);
+            scene3d_ui_hud(SNES_HUD_MATH, tw - m - wd, th - m - ht, scale);
         }
+        if (steady_h > 0.0f) bottom = th - m - 2.0f * steady_h - m * 0.5f;
     }
     scene3d_ui_end();
     if (s_minimap) neo_minimap_draw(f, v, w, tw - m, bottom, th * 0.30f);
@@ -169,14 +181,31 @@ static void neo_scene(const Scene3DFrame *f, void *user) {
     if (!w.in_race) return;
     static uint32_t frames = 0;
     frames++;
+    neo_track_draw(f, v, &w, frames / 60.0f);
     if (s_itemboxes) neo_itembox_draw(f, v, frames / 60.0f);
     draw_player_fx(f, v, &w);
     if (s_markers) draw_markers(f, v, &w);
+    scene3d_sprites();          /* karts and track objects, depth-sorted with the 3D */
     if (v->layout == M7_LAYOUT_FULLSCREEN) draw_hud(f, v, &w);
+}
+
+bool neo_track_hides_panels(void) { return s_itemboxes != 0; }
+
+/* The 3D layer needs the track sprites (karts, shells, ...) on their own
+ * depth-sorted layer. Kept in the picture: OAM 0-15 (held item, Lakitu and
+ * the start lights), 16-23 (lives / coins), 24-27 (banner text) and 120-127. */
+void neo_overlay_sync(bool in_race) {
+    static int applied = -1;
+    if (applied != s_mk8_hud) { configure_hud(); applied = s_mk8_hud; }
+    bool any3d = s_itemboxes || s_markers || neo_track_coins_enabled() || neo_track_walls_enabled();
+    static const uint8_t exclude[16] = { 0xFF, 0xFF, 0xFF, 0x0F, 0, 0, 0, 0,
+                                         0, 0, 0, 0, 0, 0, 0, 0xFF };
+    snesrecomp_set_sprite_layer(in_race && any3d, exclude);
 }
 
 void neo_register_options(void) {
     neo_gameplay_register_options();
+    neo_track_register_options();
     menu_overlay_add_option("NeoSMK", "3D item boxes", "neo_itemboxes", &s_itemboxes, 1, NULL,
                             "Spinning Mario Kart 64-style boxes over the \"?\" panels\n"
                             "(visual only; a box disappears once its panel is used).");

@@ -84,6 +84,21 @@ void renderer_set_m7_frame(const RendererM7Frame *f);
 #define RENDERER_ABOVE_MAX 64
 void renderer_set_above(const uint8_t *pixels, int cols, int lines);
 
+/* Separated sprite layer for the next present (cols x lines RGBA: rgb +
+ * sprite bottom line, 0 = none; NULL: none). Picture line y is presented at
+ * y + line_offset; each band gives the ground depth for sprites standing in
+ * it: depth = focal_height / (bottom - horizon). */
+typedef struct {
+    int   line0, line1;       /* picture lines */
+    float horizon;
+    float focal_height;
+} RendererSpriteBand;
+void renderer_set_sprites(const uint8_t *pixels, int cols, int lines, int line_offset,
+                          const RendererSpriteBand *bands, int nbands);
+/* Draw it into the bound internal target, depth-tested against the 3D layer
+ * (once per frame; later calls do nothing). */
+void renderer_draw_sprites(void);
+
 /* Separated HUD layer for the next present (RGBA + class per pixel, cols x
  * lines; NULL: none) and the texture it lands in (0 when absent). */
 void renderer_set_hud(const uint8_t *pixels, int cols, int lines);

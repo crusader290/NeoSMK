@@ -18,6 +18,7 @@
 #define SMK_TILE_ITEM_PANEL     0x14   /* "?" item panel ($C4-$C7 on Mario Circuit) */
 #define SMK_TILE_COIN           0x1A   /* track coin ($FE) */
 #define SMK_TILE_ROAD           0x40   /* plain road; used panels become this */
+#define SMK_TILE_BARRIER        0x80   /* wall / barrier block ($F0-$F3 on Mario Circuit) */
 
 /* Racer records: 8 x $100 bytes. Record 0 is player 1. */
 #define SMK_RAM_RACERS          0x1000

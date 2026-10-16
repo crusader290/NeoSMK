@@ -95,6 +95,14 @@ Ppu* ppu_init(Snes* snes) {
   ppu->aboveRendered = 0;
   ppu->evalAbove = false;
   ppu->aboveBgSkip = 0;
+  ppu->m7Override = NULL;
+  ppu->m7OverrideMaxLine = 0;
+  ppu->m7OverrideLine = false;
+  ppu->objSepEnabled = false;
+  ppu->objSepMinLine = 0;
+  ppu->objSepMaxLine = 0;
+  memset(ppu->objSepExclude, 0, sizeof(ppu->objSepExclude));
+  memset(ppu->objSepBuffer, 0, sizeof(ppu->objSepBuffer));
   return ppu;
 }
 
@@ -304,6 +312,7 @@ void ppu_runLine(Ppu* ppu, int line) {
   if(ppu->aboveLines > 0 && line == ppu->aboveFromLine && !ppu->forcedBlank && ppu->mode != 7) {
     ppu_renderAbove(ppu, line);
   }
+  ppu->m7OverrideLine = ppu->m7Override != NULL && line <= ppu->m7OverrideMaxLine;
   // evaluate sprites
   memset(ppu->objPixelBuffer, 0, sizeof(ppu->objPixelBuffer));
   memset(ppu->objWidePixel, 0, sizeof(ppu->objWidePixel));
@@ -436,6 +445,27 @@ int ppu_putHud(Ppu* ppu, uint8_t* out) {
   return rows;
 }
 
+void ppu_setM7Override(Ppu* ppu, const uint16_t* cells, int maxLine) {
+  ppu->m7Override = cells;
+  ppu->m7OverrideMaxLine = maxLine;
+}
+
+void ppu_setObjSep(Ppu* ppu, bool enabled, int minLine, int maxLine, const uint8_t exclude[16]) {
+  ppu->objSepEnabled = enabled;
+  ppu->objSepMinLine = minLine;
+  ppu->objSepMaxLine = maxLine;
+  if(exclude) memcpy(ppu->objSepExclude, exclude, 16);
+}
+
+int ppu_putObjSep(Ppu* ppu, uint8_t* out) {
+  int stride = (256 + 2 * ppu->wideExt) * 4;
+  int rows = ppu->frameOverscan ? 239 : 224;
+  for(int y = 0; y < rows; y++) {
+    memcpy(out + y * stride, &ppu->objSepBuffer[(y + (ppu->evenFrame ? 0 : 239)) * stride], stride);
+  }
+  return rows;
+}
+
 const PpuM7Line* ppu_getM7Lines(Ppu* ppu) {
   return ppu->m7lines;
 }
@@ -468,6 +498,23 @@ void ppu_setPixelOutputFormat(Ppu* ppu, int pixelOutputFormat) {
 static bool ppu_objIsHud(Ppu* ppu, int x) {
   uint8_t i = ppu->objWideIndex[x + PPU_WIDE_MAX];
   return (ppu->hudObjMask[i >> 3] >> (i & 7)) & 1;
+}
+
+// sprite pixel at x goes to the separated sprite layer
+static bool ppu_objIsSep(Ppu* ppu, int x) {
+  uint8_t i = ppu->objWideIndex[x + PPU_WIDE_MAX];
+  if(ppu->hudEnabled && ((ppu->hudObjMask[i >> 3] >> (i & 7)) & 1)) return false;
+  return !((ppu->objSepExclude[i >> 3] >> (i & 7)) & 1);
+}
+
+// bottom screen line (1-based) of OAM entry n, wrapped into 1..255
+static int ppu_objBottomLine(Ppu* ppu, int n) {
+  int index = n * 2;
+  int y = ppu->oam[index] >> 8;
+  int size = spriteSizes[ppu->objSize][(ppu->highOam[index >> 3] >> ((index & 7) + 1)) & 1];
+  int height = ppu->objInterlace ? size / 2 : size;
+  int bottom = (y + height) & 0xff;
+  return bottom == 0 ? 1 : bottom;
 }
 
 static void ppu_composePixel(Ppu* ppu, int x, int y, int* pr, int* pg, int* pb,
@@ -537,10 +584,20 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
   int g = 0, g2 = 0;
   int b = 0, b2 = 0;
   int hudR = 0, hudG = 0, hudB = 0, hudClass = 0;
+  int sepR = 0, sepG = 0, sepB = 0, sepBottom = 0;
   if(!ppu->forcedBlank) {
     PpuPixInfo info;
     ppu->hudSkip = 0;
     ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
+    if(ppu->objSepEnabled && y >= ppu->objSepMinLine && y <= ppu->objSepMaxLine &&
+       (info.mainLayer == 4 || info.mainLayer == 6) && ppu_objIsSep(ppu, x)) {
+      // a track sprite: to the sprite layer, the picture shows what is behind it
+      sepR = info.baseR; sepG = info.baseG; sepB = info.baseB;
+      sepBottom = ppu_objBottomLine(ppu, ppu->objWideIndex[x + PPU_WIDE_MAX]);
+      ppu->hudSkip = 8;
+      ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
+      ppu->hudSkip = 0;
+    }
     if(ppu->hudEnabled && y >= ppu->hudMinLine && y <= ppu->hudMaxLine) {
       int ml = info.mainLayer;
       int skip = 0;
@@ -556,8 +613,15 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
         hudR = ppu->fixedColorR; hudG = ppu->fixedColorG; hudB = ppu->fixedColorB;
       }
       if(skip) {   // the picture as it would look without the HUD element
-        ppu->hudSkip = (uint8_t)skip;
+        ppu->hudSkip = (uint8_t)(skip | (sepBottom ? 8 : 0));
         ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
+        if(skip != 4 && ppu->hudWindowMath && info.mathByWindow) {
+          // window-math HUD (the position numeral) under a HUD sprite / BG:
+          // leave it out of the picture too, flagged so it is still drawn
+          hudClass |= 0x40;
+          ppu->hudSkip |= 4;
+          ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
+        }
         ppu->hudSkip = 0;
       }
     }
@@ -581,6 +645,14 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
     uint8_t* dst = &ppu->widePixelBuffer[row * stride + (x + ppu->wideExt) * 8 + ppu->pixelOutputFormat];
     dst[0] = px[0]; dst[1] = px[1]; dst[2] = px[2];
     dst[4] = px[3]; dst[5] = px[4]; dst[6] = px[5];
+  }
+  if(ppu->objSepEnabled) {
+    int stride = (256 + 2 * ppu->wideExt) * 4;
+    uint8_t* o = &ppu->objSepBuffer[row * stride + (x + ppu->wideExt) * 4];
+    o[0] = ((sepR << 3) | (sepR >> 2)) * ppu->brightness / 15;
+    o[1] = ((sepG << 3) | (sepG >> 2)) * ppu->brightness / 15;
+    o[2] = ((sepB << 3) | (sepB >> 2)) * ppu->brightness / 15;
+    o[3] = (uint8_t)sepBottom;
   }
   if(ppu->hudEnabled) {
     int stride = (256 + 2 * ppu->wideExt) * 4;
@@ -654,6 +726,7 @@ static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b
         pixel = 0;
         if(ppu->objWidePriority[x + PPU_WIDE_MAX] == curPriority) pixel = ppu->objWidePixel[x + PPU_WIDE_MAX];
         if(pixel && (ppu->hudSkip & 1) && ppu_objIsHud(ppu, x)) pixel = 0;
+        if(pixel && (ppu->hudSkip & 8) && ppu_objIsSep(ppu, x)) pixel = 0;
       }
     }
     if(pixel > 0) {
@@ -811,7 +884,9 @@ static int ppu_getPixelForMode7(Ppu* ppu, int x, int layer, bool priority) {
   xPos &= 0x3ff;
   yPos &= 0x3ff;
   if(!ppu->m7largeField) outsideMap = false;
-  uint8_t tile = outsideMap ? 0 : ppu->vram[(yPos >> 3) * 128 + (xPos >> 3)] & 0xff;
+  int cell = (yPos >> 3) * 128 + (xPos >> 3);
+  uint8_t tile = outsideMap ? 0 : ppu->vram[cell] & 0xff;
+  if(ppu->m7OverrideLine && !outsideMap && ppu->m7Override[cell] != 0xffff) tile = (uint8_t)ppu->m7Override[cell];
   uint8_t pixel = outsideMap && !ppu->m7charFill ? 0 : ppu->vram[tile * 64 + (yPos & 7) * 8 + (xPos & 7)] >> 8;
   if(layer == 1) {
     if(((bool) (pixel & 0x80)) != priority) return 0;

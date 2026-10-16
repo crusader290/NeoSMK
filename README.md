@@ -149,7 +149,16 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
   circuit outline on the right above the position number, with a dot per racer in its
   character's colour (player 1 ringed in white).
 - **3D item boxes**, on by default. Spinning, translucent Mario Kart 64-style boxes with blob
-  shadows float over the "?" panels; a box disappears once its panel is used.
+  shadows float over the "?" panels; a box disappears once its panel is used. The flat "?"
+  panels are no longer drawn on the track.
+- **3D coins**, on by default. Spinning gold coins with blob shadows replace the flat coin
+  tiles; a coin disappears once collected.
+- **3D walls**, on by default. The track's barrier blocks (the coloured studded blocks on
+  Mario Circuit) are raised into 3D walls. Walls between the camera and your kart are cut away
+  so they never block the view. Collisions are unchanged.
+
+Karts, shells and other track sprites are depth-sorted against these 3D objects, so a kart in
+front of a wall or coin hides it, and one behind is hidden by it.
 
 **Graphics → Full-screen 1P races** (on by default) makes single-player races fill the screen
 instead of using the top half. The game's race view is shifted down (horizon at ~30% of the

@@ -28,6 +28,11 @@ extern "C" {
 
 #define M7VIEW_MAX_BANDS 4
 
+/* Depth range shared by every 3D layer drawn with m7view_clip_matrix (and the
+ * renderer's depth-sorted sprite layer), world units in front of the camera. */
+#define M7VIEW_NEAR_Z 1.0f
+#define M7VIEW_FAR_Z  2048.0f
+
 typedef struct {
     int   line0, line1;     /* first / last scanline of the band (1-based) */
     bool  perspective;      /* false = flat (scale constant down the band) */
@@ -45,6 +50,7 @@ typedef struct {
     /* scanlines of the *presented* picture where 3D for this band may draw
      * (differs from line0/line1 in the full-screen layout) */
     int   draw_line0, draw_line1;
+    float brightness;       /* screen brightness the band was drawn with, 0..1 */
 } M7Band;
 
 /* How the frame is presented. */

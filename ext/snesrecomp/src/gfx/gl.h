@@ -162,6 +162,7 @@ typedef ptrdiff_t     GLintptr;
     X(void,          glUniform2f,              (GLint loc, GLfloat v0, GLfloat v1)) \
     X(void,          glUniform3f,              (GLint loc, GLfloat v0, GLfloat v1, GLfloat v2)) \
     X(void,          glUniform4f,              (GLint loc, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)) \
+    X(void,          glUniform4fv,             (GLint loc, GLsizei count, const GLfloat *v)) \
     X(void,          glUniformMatrix4fv,       (GLint loc, GLsizei count, GLboolean transpose, const GLfloat *v)) \
     X(void,          glGenVertexArrays,        (GLsizei n, GLuint *arrays)) \
     X(void,          glDeleteVertexArrays,     (GLsizei n, const GLuint *arrays)) \
@@ -236,6 +237,7 @@ SMKGL_FUNCS(SMKGL_DECLARE)
 #define glUniform2f               smkgl_glUniform2f
 #define glUniform3f               smkgl_glUniform3f
 #define glUniform4f               smkgl_glUniform4f
+#define glUniform4fv              smkgl_glUniform4fv
 #define glUniformMatrix4fv        smkgl_glUniformMatrix4fv
 #define glGenVertexArrays         smkgl_glGenVertexArrays
 #define glDeleteVertexArrays      smkgl_glDeleteVertexArrays

@@ -111,6 +111,9 @@ typedef struct {
     unsigned char bg_mask;        /* BG layers (bit n = BG n+1) that are HUD on the
                                    * race band's non-Mode-7 lines */
     bool          window_math;    /* window-shaped colour math on the band is HUD */
+    bool          separate;       /* false: only describe the HUD (the full-screen
+                                   * layout's upward extension leaves it out) and
+                                   * keep it in the picture */
 } SnesHudConfig;
 
 #define SNES_HUD_BG    1          /* classes, as tagged by the PPU */
@@ -122,10 +125,23 @@ typedef struct {
     int  cols, lines;             /* HUD layer size (presented picture) */
     struct { bool present; int x0, y0, x1, y1; } box[4];   /* per class, inclusive */
     int  math_flags;              /* SNES_HUD_MATH blend: bit 0 subtract, bit 1 half */
+    uint8_t math_rgb[3];          /* SNES_HUD_MATH colour (the fixed colour it applies) */
 } SnesHudFrame;
 
 void snesrecomp_set_hud_config(const SnesHudConfig *cfg);   /* NULL = off */
 const SnesHudFrame *snesrecomp_hud(void);
+
+/* Mode-7 tile override (presentation only): on the racing (chase) bands, map
+ * cell i (ty * 128 + tx) shows tile cells[i] instead of the tilemap's, unless
+ * cells[i] == 0xFFFF. Used to hide flat track objects that are drawn in 3D.
+ * The array must stay valid; NULL disables. VRAM is never changed. */
+void snesrecomp_set_m7_override(const uint16_t *cells);
+
+/* Sprite layer (presentation only): sprites on the racing bands are taken out
+ * of the picture and drawn after the 3D layer at the ground depth under each
+ * sprite, so karts and 3D objects occlude each other correctly. `exclude` has
+ * a bit per OAM entry to keep in the picture (HUD sprites are always kept). */
+void snesrecomp_set_sprite_layer(bool enabled, const uint8_t exclude[16]);
 
 /* Emulator controls (menu File -> New / Save / Load). reset() hard-resets and
  * restarts the ROM; save/load_state serialize the full machine state to/from a
@@ -158,6 +174,9 @@ const uint8_t *snesrecomp_get_framebuffer(void);
  * Read a VRAM word at the given word address (0-32767).
  */
 uint16_t snesrecomp_read_vram(uint16_t word_addr);
+
+/* Read a CGRAM colour (BGR555). */
+uint16_t snesrecomp_read_cgram(uint8_t index);
 
 /*
  * Dump PPU diagnostic info to a file. For debugging rendering issues.

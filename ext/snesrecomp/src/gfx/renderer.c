@@ -4,6 +4,7 @@
 #include "renderer.h"
 #include "gl.h"
 #include "scene3d_internal.h"
+#include "snesrecomp/m7view.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -131,6 +132,50 @@ static const char *kFloorFS =
     "    o_color = vec4(texelFetch(u_pal, ivec2(idx(u_chars, c), 0), 0).rgb, 1.0);\n"
     "}\n";
 
+/* Separated sprite layer: drawn after the 3D layer, each sprite pixel at the
+ * ground depth under the sprite's bottom line, so 3D objects and sprites
+ * occlude each other. Texels: rgb, alpha = sprite bottom line (0 = none);
+ * filtered by hand (bilinear coverage) to match the SNES layer. */
+static const char *kSpriteFS =
+    "out vec4 o_color;\n"
+    "uniform highp sampler2D u_spr;\n"
+    "uniform vec2 u_target;\n"
+    "uniform vec2 u_pic;\n"           /* cols, lines */
+    "uniform float u_offset;\n"       /* presented line = picture line + offset */
+    "uniform vec4 u_band[4];\n"       /* line0, line1, horizon, focal * height */
+    "uniform int u_nbands;\n"
+    "uniform vec2 u_depth;\n"         /* ndc z = x - y / depth */
+    "void main() {\n"
+    "    vec2 q = vec2(gl_FragCoord.x / u_target.x * u_pic.x,\n"
+    "                  (u_target.y - gl_FragCoord.y) / u_target.y * u_pic.y - u_offset) - 0.5;\n"
+    "    ivec2 i0 = ivec2(floor(q));\n"
+    "    vec2 f = q - floor(q);\n"
+    "    ivec2 hi = textureSize(u_spr, 0) - 1;\n"
+    "    vec3 rgb = vec3(0.0);\n"
+    "    float cov = 0.0, bottom = 0.0;\n"
+    "    for (int k = 0; k < 4; k++) {\n"
+    "        ivec2 o = ivec2(k & 1, k >> 1);\n"
+    "        vec4 t = texelFetch(u_spr, clamp(i0 + o, ivec2(0), hi), 0);\n"
+    "        if (t.a == 0.0) continue;\n"
+    "        float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);\n"
+    "        rgb += t.rgb * w; cov += w;\n"
+    "        bottom = max(bottom, t.a * 255.0);\n"
+    "    }\n"
+    "    if (cov < 0.02) discard;\n"
+    "    float z = -1.0;\n"                /* in front unless on a band's ground */
+    "    for (int b = 0; b < 4; b++) {\n"
+    "        if (b >= u_nbands) break;\n"
+    "        vec4 B = u_band[b];\n"
+    "        float dv = bottom - B.z;\n"
+    "        if (bottom >= B.x && bottom <= B.y + 16.0 && dv > 0.5) {\n"
+    "            z = u_depth.x - u_depth.y / (B.w / dv);\n"
+    "            break;\n"
+    "        }\n"
+    "    }\n"
+    "    gl_FragDepth = clamp(z * 0.5 + 0.5, 0.0, 1.0);\n"
+    "    o_color = vec4(rgb / cov, cov);\n"
+    "}\n";
+
 typedef struct {
     GLuint prog;
     GLint  u_rect, u_flip_y, u_tex;
@@ -154,7 +199,31 @@ static struct {
     GLint  f_tilemap, f_chars, f_pal, f_target, f_pic, f_offset, f_cam, f_fwd, f_right,
            f_fhy, f_ext, f_outside;
     GLuint tex_tilemap, tex_chars, tex_pal;
+    Pass   spr;
+    GLint  s_spr, s_target, s_pic, s_offset, s_band, s_nbands, s_depth;
+    GLuint tex_spr;
 } R;
+
+/* Separated sprite layer (copied at submit, uploaded at present). */
+static uint8_t s_spr_px[(256 + 2 * 64) * 4 * 239];
+static int     s_spr_cols = 0, s_spr_lines = 0, s_spr_offset = 0, s_spr_nbands = 0;
+static RendererSpriteBand s_spr_band[4];
+static bool    s_spr_dirty = false, s_spr_drawn = false;
+
+void renderer_set_sprites(const uint8_t *pixels, int cols, int lines, int line_offset,
+                          const RendererSpriteBand *bands, int nbands) {
+    if (!pixels || cols <= 0 || lines <= 0 || cols > 256 + 2 * 64 || lines > 239) {
+        s_spr_cols = s_spr_lines = 0;
+        return;
+    }
+    memcpy(s_spr_px, pixels, (size_t)cols * lines * 4);
+    s_spr_cols = cols;
+    s_spr_lines = lines;
+    s_spr_offset = line_offset;
+    s_spr_nbands = nbands < 0 ? 0 : (nbands > 4 ? 4 : nbands);
+    if (s_spr_nbands) memcpy(s_spr_band, bands, sizeof(*bands) * (size_t)s_spr_nbands);
+    s_spr_dirty = true;
+}
 
 /* Separated HUD layer (copied at submit, uploaded at present). */
 static uint8_t s_hud_px[(256 + 2 * 64) * 4 * 239];
@@ -314,6 +383,19 @@ bool renderer_init(void) {
         renderer_shutdown();
         return false;
     }
+    if (!make_pass(&R.spr, "sprites", kSpriteFS)) {
+        renderer_shutdown();
+        return false;
+    }
+    R.s_spr    = glGetUniformLocation(R.spr.prog, "u_spr");
+    R.s_target = glGetUniformLocation(R.spr.prog, "u_target");
+    R.s_pic    = glGetUniformLocation(R.spr.prog, "u_pic");
+    R.s_offset = glGetUniformLocation(R.spr.prog, "u_offset");
+    R.s_band   = glGetUniformLocation(R.spr.prog, "u_band");
+    R.s_nbands = glGetUniformLocation(R.spr.prog, "u_nbands");
+    R.s_depth  = glGetUniformLocation(R.spr.prog, "u_depth");
+    R.tex_spr  = make_texture(256 + 2 * 64, 240, GL_NEAREST, NULL);
+    s_spr_dirty = true;
     R.f_tilemap = glGetUniformLocation(R.floor.prog, "u_tilemap");
     R.f_chars   = glGetUniformLocation(R.floor.prog, "u_chars");
     R.f_pal     = glGetUniformLocation(R.floor.prog, "u_pal");
@@ -355,6 +437,8 @@ void renderer_shutdown(void) {
     if (s_above_tex) { glDeleteTextures(1, &s_above_tex); s_above_tex = 0; }
     if (R.snes.prog) glDeleteProgram(R.snes.prog);
     if (R.floor.prog) glDeleteProgram(R.floor.prog);
+    if (R.tex_spr) glDeleteTextures(1, &R.tex_spr);
+    if (R.spr.prog) glDeleteProgram(R.spr.prog);
     if (R.tex_tilemap) glDeleteTextures(1, &R.tex_tilemap);
     if (R.tex_chars)   glDeleteTextures(1, &R.tex_chars);
     if (R.tex_pal)     glDeleteTextures(1, &R.tex_pal);
@@ -495,6 +579,64 @@ static void draw_fullscreen_m7(void) {
     }
 }
 
+void renderer_draw_sprites(void) {
+    if (!R.ready || s_spr_drawn || s_spr_cols == 0) return;
+    s_spr_drawn = true;
+    if (s_spr_dirty) {
+        glBindTexture(GL_TEXTURE_2D, R.tex_spr);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s_spr_cols, s_spr_lines, GL_RGBA, GL_UNSIGNED_BYTE, s_spr_px);
+        s_spr_dirty = false;
+    }
+    glBindVertexArray(R.vao);
+    glDisable(GL_SCISSOR_TEST);
+    if (s_spr_nbands > 0) {       /* only the rows that can hold separated sprites */
+        int l0 = s_spr_band[0].line0, l1 = s_spr_band[0].line1;
+        for (int i = 1; i < s_spr_nbands; i++) {
+            if (s_spr_band[i].line0 < l0) l0 = s_spr_band[i].line0;
+            if (s_spr_band[i].line1 > l1) l1 = s_spr_band[i].line1;
+        }
+        l1 += 9;                  /* native layout: karts overhang the band */
+        int top = (int)((float)(l0 - 2 + s_spr_offset) / s_spr_lines * R.int_h);
+        int bot = (int)((float)(l1 + s_spr_offset) / s_spr_lines * R.int_h + 1.0f);
+        if (top < 0) top = 0;
+        if (bot > R.int_h) bot = R.int_h;
+        if (bot <= top) return;
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(0, R.int_h - bot, R.int_w, bot - top);
+    }
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(R.spr.prog);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, R.tex_spr);
+    glUniform1i(R.s_spr, 0);
+    glUniform2f(R.s_target, (float)R.int_w, (float)R.int_h);
+    /* the texture is wider than the picture: scale columns to the texture */
+    glUniform2f(R.s_pic, (float)s_spr_cols, (float)s_spr_lines);
+    glUniform1f(R.s_offset, (float)s_spr_offset);
+    float band[16] = { 0 };
+    for (int i = 0; i < s_spr_nbands; i++) {
+        band[i * 4 + 0] = (float)s_spr_band[i].line0;
+        band[i * 4 + 1] = (float)s_spr_band[i].line1;
+        band[i * 4 + 2] = s_spr_band[i].horizon;
+        band[i * 4 + 3] = s_spr_band[i].focal_height;
+    }
+    glUniform4fv(R.s_band, 4, band);
+    glUniform1i(R.s_nbands, s_spr_nbands);
+    const float n = M7VIEW_NEAR_Z, f = M7VIEW_FAR_Z;
+    glUniform2f(R.s_depth, (f + n) / (f - n), 2.0f * f * n / (f - n));
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+}
+
 void renderer_draw(int out_w, int out_h, int top_inset,
                    float bar_r, float bar_g, float bar_b,
                    const RendererSettings *s) {
@@ -518,11 +660,14 @@ void renderer_draw(int out_w, int out_h, int top_inset,
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         draw_pass(&R.snes, R.snes_tex, R.snes_rect, true);
     }
+    s_spr_drawn = false;
     if (scene3d_has_hook()) {
         scene3d_run_hook(R.int_w, R.int_h);
         glDisable(GL_DEPTH_TEST);
         glBindVertexArray(R.vao);
     }
+    renderer_draw_sprites();   /* if the hook didn't place it under its 2D overlay */
+    glBindVertexArray(R.vao);
 
     /* [2] FXAA */
     GLuint final_tex = R.internal.color;

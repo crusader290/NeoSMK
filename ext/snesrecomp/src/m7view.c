@@ -115,6 +115,9 @@ void m7view_solve(M7View *v, const PpuM7Line *lines, int cols, int nlines) {
         b->line1 = start + n;
         b->draw_line0 = b->line0;
         b->draw_line1 = b->line1;
+        int bright = 0;
+        for (int k = start; k < start + n; k++) bright += lines[k].brightness;
+        b->brightness = bright / (15.0f * n);
         solve_band(sm, n, b);
     }
 }

@@ -88,6 +88,23 @@ re-composited without them. For SMK (`src/neo/neo_overlay.c`):
 | position numeral | fixed colour (14,14,14) added inside colour windows 1 \| 2, reshaped per line by HDMA | bottom-right, 2×, still additive |
 
 The circuit map sits above the position numeral. Banners such as "ROUND 1" stay centred.
+SMK briefly zooms the numeral when the place changes and blows it up at the finish; NeoSMK
+draws it at its steady height instead, so it stays in the corner under the circuit map. Where
+the numeral passes under the lives / coins sprites, those pixels are tagged (class bit 6) so
+the numeral is still drawn whole and leaves nothing behind in the picture. The HUD is also
+described to the PPU when the MK8 layout is off, so the upward extension never extends the
+timer's BG2 layer.
+
+### Depth-sorted sprites — done
+
+3D objects drawn over the SNES picture would cover karts that are in front of them. The PPU
+therefore separates track sprites on the racing bands (presentation only, `Ppu.objSep*`):
+each such pixel goes to a sprite layer with its colour and the bottom scanline of its sprite,
+and the picture is re-composited without it. The renderer draws that layer after the 3D
+objects, giving each pixel the ground depth under its sprite's bottom line,
+`depth = focal · height / (bottom − horizon)`, through `gl_FragDepth`. Karts and 3D objects
+then occlude each other correctly. SMK keeps OAM 0–27 and 120–127 (held item, Lakitu and the
+start lights, lives / coins, banner text) in the picture.
 
 ### B2. HD Mode 7 floor (optional, high payoff)
 
@@ -110,9 +127,22 @@ Order by visual payoff vs risk:
 1. **Item boxes** (MK64-style rotating "?" cubes): **done** (`src/neo/neo_itembox.c`). SMK's
    boxes are 2 × 2 "?" panels in the Mode-7 tilemap (behaviour $14). Each frame NeoSMK finds them
    and floats a translucent rainbow cube with a blob shadow over each; a used panel loses its cube
-2. **Pipes / track obstacles** (static): instanced meshes
-3. **Shells, bananas** (dynamic but simple)
-4. **Karts** (8 drivers × 12 rotation sprites today). A 300–800-triangle kart with a 128–256 px
+2. **Coins**: **done** (`src/neo/neo_track.c`). Coin tiles (behaviour $1A, $FE on Mario
+   Circuit) get a spinning gold coin with a blob shadow; a collected coin is rewritten to road
+   by the game, so its coin disappears.
+3. **Walls**: **done** (`src/neo/neo_track.c`). Barrier tiles (behaviour $80) are extruded into
+   5-unit blocks with a studded top. The colour is the tile's average colour through the
+   palette, and only faces next to open ground are emitted. The result is one static mesh,
+   split at 60k vertices for 16-bit indices and rebuilt when the barrier layout changes. Wall
+   pixels nearer than 75% of the kart's depth are discarded (`scene3d_near_cut`), so a wall
+   between the camera and the kart doesn't block the view.
+4. **Flat originals hidden**: a presentation-only Mode-7 tile override (`Ppu.m7Override`,
+   `snesrecomp_set_m7_override`) paints each coin / panel cell with the road around it, on the
+   racing bands only (also used for the GPU floor). Stripes such as the start grid are
+   continued from the nearest visible cells left / right or up / down. VRAM is untouched.
+5. **Pipes / other track obstacles** (static): instanced meshes
+6. **Shells, bananas** (dynamic but simple)
+7. **Karts** (8 drivers × 12 rotation sprites today). A 300–800-triangle kart with a 128–256 px
    texture each; the driver can stay a camera-facing billboard at first
 
 For each promoted object:

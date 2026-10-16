@@ -185,6 +185,21 @@ struct Ppu {
   bool evalAbove;          // internal: evaluating sprites for a virtual line
   uint8_t aboveBgSkip;     // internal: BG layers left out of the current virtual line
   uint8_t aboveBuffer[(256 + 2 * PPU_WIDE_MAX) * 8 * PPU_ABOVE_MAX];
+  // Mode-7 tile override (NeoSMK, presentation only): on lines 1..
+  // m7OverrideMaxLine, map cell i (ty * 128 + tx) shows tile m7Override[i]
+  // instead of the tilemap's, unless that is 0xFFFF. VRAM is not changed.
+  const uint16_t* m7Override;
+  int m7OverrideMaxLine;
+  bool m7OverrideLine;     // internal: override active on the current line
+  // Sprite separation (NeoSMK, presentation only): main-screen sprite pixels
+  // on lines objSepMinLine..objSepMaxLine, except entries in objSepExclude and
+  // HUD sprites, go to objSepBuffer and are removed from the picture.
+  // Per pixel: r, g, b, bottom line of the sprite (1..255; 0 = no sprite).
+  bool objSepEnabled;
+  int objSepMinLine;
+  int objSepMaxLine;
+  uint8_t objSepExclude[16];   // bit per OAM entry
+  uint8_t objSepBuffer[(256 + 2 * PPU_WIDE_MAX) * 4 * 239 * 2];
 };
 
 enum { ppu_pixelOutputFormatXBGR = 0, ppu_pixelOutputFormatBGRX = 1 };
@@ -217,6 +232,12 @@ int ppu_putHud(Ppu* ppu, uint8_t* out);
 void ppu_setAbove(Ppu* ppu, int lines, int fromLine);
 // copy them (wide layout, 8 bytes per column); returns the number of lines
 int ppu_putAbove(Ppu* ppu, uint8_t* out);
+// mode-7 tile override (see Ppu.m7Override); NULL disables
+void ppu_setM7Override(Ppu* ppu, const uint16_t* cells, int maxLine);
+// sprite separation (see Ppu.objSep*)
+void ppu_setObjSep(Ppu* ppu, bool enabled, int minLine, int maxLine, const uint8_t exclude[16]);
+// copy the last frame's sprite layer like ppu_putHud (4 bytes per pixel)
+int ppu_putObjSep(Ppu* ppu, uint8_t* out);
 // mode-7 line capture of the last frame (lines 1..239 at index line - 1)
 const PpuM7Line* ppu_getM7Lines(Ppu* ppu);
 

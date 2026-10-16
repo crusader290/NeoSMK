@@ -102,6 +102,7 @@ void neo_tick(void) {
         s_epoch = snesrecomp_state_epoch();
         memset(s_mt, 0, sizeof(s_mt));
     }
+    neo_track_update(bus_wram_read16(SMK_RAM_GAME_STATE) == 0x0002);   /* presentation */
     if (bus_wram_read16(SMK_RAM_GAME_STATE) != 0x0002) {   /* not racing */
         memset(s_mt, 0, sizeof(s_mt));
         return;

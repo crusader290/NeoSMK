@@ -64,6 +64,17 @@ void neo_itembox_draw(const Scene3DFrame *f, const M7View *v, float time_s);
 void neo_minimap_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w,
                       float right, float bottom, float max_h);
 
+/* Track objects in 3D (coins, walls) and the Mode-7 override that hides the
+ * flat coin / panel graphics they replace. */
+void neo_track_register_options(void);
+void neo_track_update(bool in_race);          /* once per frame, after it ran */
+void neo_track_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w, float time_s);
+bool neo_track_coins_enabled(void);
+bool neo_track_walls_enabled(void);
+bool neo_track_hides_panels(void);            /* = 3D item boxes on (neo_overlay.c) */
+/* Sprite layer on/off for the 3D layer (neo_overlay.c); once per frame. */
+void neo_overlay_sync(bool in_race);
+
 /* Install the 3D overlay hook. Call after snesrecomp_init. */
 void neo_install(void);
 

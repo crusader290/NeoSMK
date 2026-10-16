@@ -52,6 +52,11 @@ uint16_t snesrecomp_read_vram(uint16_t word_addr) {
     return s_snes->ppu->vram[word_addr & 0x7FFF];
 }
 
+uint16_t snesrecomp_read_cgram(uint8_t index) {
+    if (!s_snes || !s_snes->ppu) return 0;
+    return s_snes->ppu->cgram[index];
+}
+
 /*
  * Dump a compact binary snapshot of guest state (WRAM + VRAM) for lockstep
  * divergence analysis. Modeled on the snesrev zelda3 verification harness:
@@ -209,7 +214,7 @@ const SnesHudFrame *snesrecomp_hud(void) { return &s_hud; }
 /* Before a frame: separate the HUD only while presenting full-screen (the
  * previous frame's decision; the first full-screen frame keeps it in place). */
 static void apply_hud(void) {
-    bool on = s_hud_cfg_set && s_view.layout == M7_LAYOUT_FULLSCREEN;
+    bool on = s_hud_cfg_set && s_hud_cfg.separate && s_view.layout == M7_LAYOUT_FULLSCREEN;
     /* lines above the band's first visible line are the game's blank strip */
     ppu_setHud(s_snes->ppu, on, s_view.top_skip + 1, on ? s_view.band[0].line1 : 0, s_hud_cfg.obj_mask,
                s_hud_cfg.bg_mask, s_hud_cfg.window_math);
@@ -234,6 +239,56 @@ static void collect_above(int cols) {
     renderer_set_above(n > 0 ? s_above_buf : NULL, cols, n);
 }
 
+/* Mode-7 tile override and sprite layer, applied to the chase bands of the
+ * previous frame (presentation only). */
+static const uint16_t *s_m7_override = NULL;
+static bool            s_spr_on = false;
+static uint8_t         s_spr_exclude[16];
+static uint8_t         s_spr_buf[(256 + 2 * PPU_WIDE_MAX) * 4 * 239];
+
+void snesrecomp_set_m7_override(const uint16_t *cells) { s_m7_override = cells; }
+
+void snesrecomp_set_sprite_layer(bool enabled, const uint8_t exclude[16]) {
+    s_spr_on = enabled;
+    if (exclude) memcpy(s_spr_exclude, exclude, sizeof(s_spr_exclude));
+    else memset(s_spr_exclude, 0, sizeof(s_spr_exclude));
+}
+
+static void apply_track_layers(void) {
+    int l0 = 0, l1 = 0;
+    for (int i = 0; i < s_view.nbands; i++) {
+        const M7Band *b = &s_view.band[i];
+        if (!b->chase) continue;
+        if (l0 == 0 || b->line0 < l0) l0 = b->line0;
+        if (b->line1 > l1) l1 = b->line1;
+    }
+    ppu_setM7Override(s_snes->ppu, l1 > 0 ? s_m7_override : NULL, l1);
+    /* native layout: karts poke out a little below the band */
+    int max = s_view.layout == M7_LAYOUT_FULLSCREEN ? l1 : l1 + 8;
+    ppu_setObjSep(s_snes->ppu, s_spr_on && l1 > 0, l0, max, s_spr_exclude);
+}
+
+static void collect_sprites(int cols) {
+    if (!s_snes->ppu->objSepEnabled) {
+        renderer_set_sprites(NULL, 0, 0, 0, NULL, 0);
+        return;
+    }
+    int lines = ppu_putObjSep(s_snes->ppu, s_spr_buf);
+    RendererSpriteBand bands[4];
+    int n = 0;
+    for (int i = 0; i < s_view.nbands && n < 4; i++) {
+        const M7Band *b = &s_view.band[i];
+        if (!b->chase) continue;
+        bands[n].line0 = b->line0;
+        bands[n].line1 = b->line1;
+        bands[n].horizon = b->horizon;
+        bands[n].focal_height = b->focal * b->height;
+        n++;
+    }
+    renderer_set_sprites(s_spr_buf, cols, lines,
+                         s_view.layout == M7_LAYOUT_FULLSCREEN ? s_view.line_offset : 0, bands, n);
+}
+
 /* After a frame: copy the HUD layer and box each class. */
 static void collect_hud(int cols) {
     s_hud.valid = false;
@@ -253,8 +308,18 @@ static void collect_hud(int cols) {
         for (int x = 0; x < cols; x++) {
             int c = row[x * 4 + 3] & 0x0F;
             if (c <= 0 || c > 3) continue;
-            if (c == SNES_HUD_MATH)
+            if (c == SNES_HUD_MATH) {
                 s_hud.math_flags = ((row[x * 4 + 3] >> 4) & 1) | (((row[x * 4 + 3] >> 5) & 1) << 1);
+                memcpy(s_hud.math_rgb, &row[x * 4], 3);
+            }
+            if (row[x * 4 + 3] & 0x40) {      /* math under another HUD element */
+                SnesHudFrame *h = &s_hud;
+                if (x < h->box[SNES_HUD_MATH].x0) h->box[SNES_HUD_MATH].x0 = x;
+                if (x > h->box[SNES_HUD_MATH].x1) h->box[SNES_HUD_MATH].x1 = x;
+                if (y < h->box[SNES_HUD_MATH].y0) h->box[SNES_HUD_MATH].y0 = y;
+                if (y > h->box[SNES_HUD_MATH].y1) h->box[SNES_HUD_MATH].y1 = y;
+                h->box[SNES_HUD_MATH].present = true;
+            }
             if (x < s_hud.box[c].x0) s_hud.box[c].x0 = x;
             if (x > s_hud.box[c].x1) s_hud.box[c].x1 = x;
             if (y < s_hud.box[c].y0) s_hud.box[c].y0 = y;
@@ -353,7 +418,9 @@ static void decide_layout(const uint8_t *pix, int width, int row0, int rows_per_
     m->height = top->height;
     m->horizon = top->horizon;
     m->outside = !ppu->m7largeField ? 0 : (ppu->m7charFill ? 2 : 1);
-    for (int i = 0; i < 128 * 128; i++) m->tilemap[i] = (uint8_t)(ppu->vram[i] & 0xFF);
+    for (int i = 0; i < 128 * 128; i++)
+        m->tilemap[i] = (uint8_t)(s_m7_override && s_m7_override[i] != 0xFFFF ? s_m7_override[i]
+                                                                               : ppu->vram[i] & 0xFF);
     for (int t = 0; t < 256; t++)
         for (int py = 0; py < 8; py++)
             for (int px = 0; px < 8; px++)
@@ -400,6 +467,7 @@ static void submit_video(void) {
     renderer_set_m7_frame(s_view.layout == M7_LAYOUT_FULLSCREEN ? &s_m7frame : NULL);
     collect_hud(width / 2);
     collect_above(width / 2);
+    collect_sprites(width / 2);
     platform_submit_frame(pix, width, row0, rows);
 }
 
@@ -439,6 +507,7 @@ void snesrecomp_end_frame(void) {
     apply_widescreen();
     apply_hud();
     apply_above();
+    apply_track_layers();
     ppu_handleFrameStart(s_snes->ppu);
     s_snes->input2->scopeLatched = false; /* reset Super Scope latch for new frame */
 
@@ -572,6 +641,7 @@ void snesrecomp_realframe_end(void) {
     apply_widescreen();
     apply_hud();
     apply_above();
+    apply_track_layers();
     snes_runFrame(s_snes);
     snes_setPixels(s_snes, s_pixel_buf);
     snes_setSamples(s_snes, s_audio_buf, SAMPLES_PER_FRAME);
