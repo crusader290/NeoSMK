@@ -66,6 +66,21 @@ brightness), and the sky colour fills the top. The overview map is replaced by a
 built from the tile behaviours (`src/neo/neo_minimap.c`). The 3D layer follows the shifted
 view through `M7View.line_offset`.
 
+### Mario Kart 8-style HUD — done
+
+In the full-screen layout the PPU separates SMK's HUD from the picture, presentation-only
+(`Ppu.hud*` in LakeSnes, `SnesHudConfig` in snesrecomp). Pixels from HUD sprites, a HUD BG layer,
+or window-shaped colour maths go to a HUD layer tagged by class, and the picture is
+re-composited without them. For SMK (`src/neo/neo_overlay.c`):
+
+| HUD element | How SMK draws it | Placed |
+|---|---|---|
+| lives, coins | OAM 16–23 (8×8, palette 4, fixed position) | bottom-left, 1.25× |
+| timer, lap box | BG2 of the Mode-0 scenery strip (BG3/BG4 are hills and trees) | top-right |
+| position numeral | fixed colour (14,14,14) added inside colour windows 1 \| 2, reshaped per line by HDMA | bottom-right, 2×, still additive |
+
+The circuit map sits above the position numeral. Banners such as "ROUND 1" stay centred.
+
 ### B2. HD Mode 7 floor (optional, high payoff)
 
 The full-screen layout already renders the floor this way below the SNES band. The remaining step

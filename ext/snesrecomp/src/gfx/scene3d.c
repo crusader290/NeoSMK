@@ -4,7 +4,9 @@
 #include "snesrecomp/scene3d.h"
 #include "snesrecomp/m7view.h"
 #include "scene3d_internal.h"
+#include "renderer.h"
 #include "gl.h"
+#include "snesrecomp/snesrecomp.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -85,12 +87,19 @@ static const char *kUiFS =
     "in vec2 v_q;\n"
     "out vec4 o_color;\n"
     "uniform sampler2D u_mask;\n"
-    "uniform int u_mode;\n"         /* 0 mask, 1 disc */
+    "uniform int u_mode;\n"         /* 0 mask, 1 disc, 2 HUD class */
+    "uniform int u_class;\n"
     "uniform vec4 u_fill;\n"
     "uniform vec4 u_edge;\n"
     "uniform float u_ring;\n"       /* disc: ring width as a fraction of radius */
     "uniform float u_aa;\n"         /* disc: one pixel as a fraction of radius */
     "void main() {\n"
+    "    if (u_mode == 2) {\n"
+    "        vec4 t = texture(u_mask, v_uv);\n"
+    "        if ((int(t.a * 255.0 + 0.5) & 15) != u_class) discard;\n"
+    "        o_color = vec4(t.rgb, u_fill.a);\n"
+    "        return;\n"
+    "    }\n"
     "    if (u_mode == 0) {\n"
     "        float m = texture(u_mask, v_uv).r;\n"
     "        float inside = smoothstep(0.42, 0.58, m);\n"
@@ -110,7 +119,7 @@ struct Scene3DTex { GLuint tex; int w, h; };
 
 static struct {
     GLuint ui_prog;
-    GLint  u_rect, u_target, u_uv, u_mask, u_mode, u_fill, u_edge, u_ring, u_aa;
+    GLint  u_rect, u_target, u_uv, u_mask, u_mode, u_fill, u_edge, u_ring, u_aa, u_class;
     float  tw, th;
 } U;
 
@@ -161,6 +170,7 @@ bool scene3d_init(void) {
     U.u_edge   = glGetUniformLocation(U.ui_prog, "u_edge");
     U.u_ring   = glGetUniformLocation(U.ui_prog, "u_ring");
     U.u_aa     = glGetUniformLocation(U.ui_prog, "u_aa");
+    U.u_class  = glGetUniformLocation(U.ui_prog, "u_class");
     S.ready = true;
     return true;
 }
@@ -460,6 +470,49 @@ void scene3d_ui_disc(float cx, float cy, float r, const float fill[4],
     glUniform1f(U.u_ring, r > 0 ? ring_px / r : 0.0f);
     glUniform1f(U.u_aa, r > 0 ? 1.0f / r : 1.0f);
     ui_quad(cx - r, cy - r, 2.0f * r, 2.0f * r);
+}
+
+bool scene3d_ui_hud_size(int cls, float scale, float *w, float *h) {
+    const SnesHudFrame *hf = snesrecomp_hud();
+    if (!hf->valid || cls < 1 || cls > 3 || !hf->box[cls].present) return false;
+    float bw = (float)(hf->box[cls].x1 - hf->box[cls].x0 + 1);
+    float bh = (float)(hf->box[cls].y1 - hf->box[cls].y0 + 1);
+    if (w) *w = bw * U.tw / hf->cols * scale;
+    if (h) *h = bh * U.th / hf->lines * scale;
+    return true;
+}
+
+void scene3d_ui_hud(int cls, float x, float y, float scale) {
+    const SnesHudFrame *hf = snesrecomp_hud();
+    float w, h;
+    if (!scene3d_ui_hud_size(cls, scale, &w, &h)) return;
+    int tc = 0, tl = 0;
+    GLuint tex = renderer_hud_texture(&tc, &tl);
+    if (!tex) return;
+    const float TW = 256.0f + 2.0f * 64.0f, TH = 240.0f;   /* HUD texture size */
+    float u0 = hf->box[cls].x0 / TW, v0 = hf->box[cls].y0 / TH;
+    float u1 = (hf->box[cls].x1 + 1) / TW, v1 = (hf->box[cls].y1 + 1) / TH;
+
+    float alpha = 1.0f;
+    if (cls == SNES_HUD_MATH) {
+        /* blend like the PPU's colour math (add / subtract / half-add) */
+        glBlendEquation((hf->math_flags & 1) ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD);
+        glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE);
+        if (hf->math_flags & 2) {
+            glBlendEquation(GL_FUNC_ADD);
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+            alpha = 0.5f;
+        }
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(U.u_mode, 2);
+    glUniform1i(U.u_class, cls);
+    glUniform4f(U.u_fill, 1.0f, 1.0f, 1.0f, alpha);
+    glUniform4f(U.u_uv, (u0 + u1) * 0.5f, (v0 + v1) * 0.5f, u1, v1);
+    ui_quad(x, y, w, h);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void scene3d_ui_end(void) {

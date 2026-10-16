@@ -492,6 +492,8 @@ int main(int argc, char *argv[]) {
                 char path[512];
                 snprintf(path, sizeof(path), "%s_f%06d.txt", getenv("SMK_DUMP_M7"), frame_no);
                 snesrecomp_dump_m7(path);
+                snprintf(path, sizeof(path), "%s_f%06d_oam.txt", getenv("SMK_DUMP_M7"), frame_no);
+                snesrecomp_dump_oam(path);
             }
 
             /* SMK_STATS=1: present rate / logic rate / frame time every 2 s

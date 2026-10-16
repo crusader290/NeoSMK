@@ -193,6 +193,62 @@ static void apply_widescreen(void) {
 
 /* Hand the finished frame to the platform: the 256-wide 2x buffer, or the
  * widened single-height buffer when widescreen is on. */
+/* HUD separation (full-screen layout). */
+static SnesHudConfig s_hud_cfg;
+static bool          s_hud_cfg_set = false;
+static SnesHudFrame  s_hud;
+static uint8_t       s_hud_buf[(256 + 2 * PPU_WIDE_MAX) * 4 * 239];
+
+void snesrecomp_set_hud_config(const SnesHudConfig *cfg) {
+    s_hud_cfg_set = cfg != NULL;
+    if (cfg) s_hud_cfg = *cfg;
+}
+
+const SnesHudFrame *snesrecomp_hud(void) { return &s_hud; }
+
+/* Before a frame: separate the HUD only while presenting full-screen (the
+ * previous frame's decision; the first full-screen frame keeps it in place). */
+static void apply_hud(void) {
+    bool on = s_hud_cfg_set && s_view.layout == M7_LAYOUT_FULLSCREEN;
+    /* lines above the band's first visible line are the game's blank strip */
+    ppu_setHud(s_snes->ppu, on, s_view.top_skip + 1, on ? s_view.band[0].line1 : 0, s_hud_cfg.obj_mask,
+               s_hud_cfg.bg_mask, s_hud_cfg.window_math);
+}
+
+/* After a frame: copy the HUD layer and box each class. */
+static void collect_hud(int cols) {
+    s_hud.valid = false;
+    if (!s_snes->ppu->hudEnabled || s_view.layout != M7_LAYOUT_FULLSCREEN) {
+        renderer_set_hud(NULL, 0, 0);
+        return;
+    }
+    int lines = ppu_putHud(s_snes->ppu, s_hud_buf);
+    s_hud.math_flags = 0;
+    for (int c = 0; c < 4; c++) {
+        s_hud.box[c].present = false;
+        s_hud.box[c].x0 = s_hud.box[c].y0 = 1 << 20;
+        s_hud.box[c].x1 = s_hud.box[c].y1 = -1;
+    }
+    for (int y = 0; y < lines; y++) {
+        const uint8_t *row = s_hud_buf + (size_t)y * cols * 4;
+        for (int x = 0; x < cols; x++) {
+            int c = row[x * 4 + 3] & 0x0F;
+            if (c <= 0 || c > 3) continue;
+            if (c == SNES_HUD_MATH)
+                s_hud.math_flags = ((row[x * 4 + 3] >> 4) & 1) | (((row[x * 4 + 3] >> 5) & 1) << 1);
+            if (x < s_hud.box[c].x0) s_hud.box[c].x0 = x;
+            if (x > s_hud.box[c].x1) s_hud.box[c].x1 = x;
+            if (y < s_hud.box[c].y0) s_hud.box[c].y0 = y;
+            if (y > s_hud.box[c].y1) s_hud.box[c].y1 = y;
+            s_hud.box[c].present = true;
+        }
+    }
+    s_hud.valid = true;
+    s_hud.cols = cols;
+    s_hud.lines = lines;
+    renderer_set_hud(s_hud_buf, cols, lines);
+}
+
 /* Full-screen 1-player layout: decided per frame from the solved bands. */
 static RendererM7Frame s_m7frame;
 
@@ -323,6 +379,7 @@ static void submit_video(void) {
         last_layout = s_view.layout;
     }
     renderer_set_m7_frame(s_view.layout == M7_LAYOUT_FULLSCREEN ? &s_m7frame : NULL);
+    collect_hud(width / 2);
     platform_submit_frame(pix, width, row0, rows);
 }
 
@@ -360,6 +417,7 @@ void snesrecomp_end_frame(void) {
 
     /* Start-of-frame PPU bookkeeping (toggles evenFrame, resets mosaic, etc.) */
     apply_widescreen();
+    apply_hud();
     ppu_handleFrameStart(s_snes->ppu);
     s_snes->input2->scopeLatched = false; /* reset Super Scope latch for new frame */
 
@@ -491,6 +549,7 @@ bool snesrecomp_realframe_begin(void) {
 void snesrecomp_realframe_end(void) {
     if (!s_snes) return;
     apply_widescreen();
+    apply_hud();
     snes_runFrame(s_snes);
     snes_setPixels(s_snes, s_pixel_buf);
     snes_setSamples(s_snes, s_audio_buf, SAMPLES_PER_FRAME);
@@ -575,6 +634,24 @@ void snesrecomp_dump_m7(const char *filepath) {
     for (int i = 0; i < 240; i++)
         if (l[i].valid)
             fprintf(f, "%d %d %d %d %d %d\n", i + 1, l[i].xFlip, l[i].startX, l[i].startY, l[i].a, l[i].c);
+    fclose(f);
+}
+
+void snesrecomp_dump_oam(const char *filepath) {
+    if (!s_snes || !s_snes->ppu) return;
+    FILE *f = fopen(filepath, "w");
+    if (!f) return;
+    Ppu *ppu = s_snes->ppu;
+    fprintf(f, "# objSize=%d tileAdr1=%04X tileAdr2=%04X\n# idx x y tile nt pal pri hf vf large\n",
+            ppu->objSize, ppu->objTileAdr1, ppu->objTileAdr2);
+    for (int i = 0; i < 128; i++) {
+        uint16_t w0 = ppu->oam[i * 2], w1 = ppu->oam[i * 2 + 1];
+        int hi = (ppu->highOam[i >> 2] >> ((i & 3) * 2)) & 3;
+        int x = (w0 & 0xFF) | ((hi & 1) << 8);
+        if (x > 255) x -= 512;
+        fprintf(f, "%d %d %d %d %d %d %d %d %d %d\n", i, x, w0 >> 8, w1 & 0xFF, (w1 >> 8) & 1,
+                (w1 >> 9) & 7, (w1 >> 12) & 3, (w1 >> 14) & 1, (w1 >> 15) & 1, (hi >> 1) & 1);
+    }
     fclose(f);
 }
 

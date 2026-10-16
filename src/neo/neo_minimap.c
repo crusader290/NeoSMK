@@ -45,7 +45,8 @@ static bool build_mask(void) {
     return true;
 }
 
-void neo_minimap_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) {
+void neo_minimap_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w,
+                      float right, float bottom, float max_h) {
     if (v->layout != M7_LAYOUT_FULLSCREEN || !build_mask()) return;
     if (!s_mask_tex) s_mask_tex = scene3d_tex_r8(128, 128);
     if (!s_have_upload || memcmp(s_mask, s_uploaded, sizeof(s_mask)) != 0) {
@@ -54,17 +55,14 @@ void neo_minimap_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w)
         s_have_upload = true;
     }
 
-    /* fit inside the floor area under the race band, bottom right */
+    /* right-aligned at `right`, bottom at `bottom`, at most max_h tall */
     float tw = (float)f->target_w, th = (float)f->target_h;
-    float band_bottom = (float)(v->band[0].line1 + v->line_offset) / v->lines * th;
-    float margin = th * 0.03f;
-    float h = th - band_bottom - 2.0f * margin;
-    if (h > th * 0.34f) h = th * 0.34f;
-    if (h < th * 0.12f) return;
+    float h = max_h;
+    if (h < th * 0.10f) return;
     float bw = (float)(s_bx1 - s_bx0), bh = (float)(s_by1 - s_by0);
     float wpx = h * bw / bh;
     if (wpx > tw * 0.32f) { h *= tw * 0.32f / wpx; wpx = tw * 0.32f; }
-    float x = tw - margin - wpx, y = th - margin - h;
+    float x = right - wpx, y = bottom - h;
 
     scene3d_ui_begin(f);
     static const float fill[4] = { 0.97f, 0.97f, 0.99f, 0.88f };

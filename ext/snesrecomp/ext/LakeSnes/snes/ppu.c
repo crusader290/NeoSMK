@@ -82,6 +82,14 @@ Ppu* ppu_init(Snes* snes) {
   ppu->wideSawMode7 = false;
   memset(ppu->widePixelBuffer, 0, sizeof(ppu->widePixelBuffer));
   memset(ppu->m7lines, 0, sizeof(ppu->m7lines));
+  ppu->hudEnabled = false;
+  ppu->hudMinLine = 0;
+  ppu->hudMaxLine = 0;
+  memset(ppu->hudObjMask, 0, sizeof(ppu->hudObjMask));
+  ppu->hudBgMask = 0;
+  ppu->hudWindowMath = false;
+  ppu->hudSkip = 0;
+  memset(ppu->hudBuffer, 0, sizeof(ppu->hudBuffer));
   return ppu;
 }
 
@@ -310,6 +318,25 @@ void ppu_runLine(Ppu* ppu, int line) {
   }
 }
 
+void ppu_setHud(Ppu* ppu, bool enabled, int minLine, int maxLine, const uint8_t objMask[16],
+                uint8_t bgMask, bool windowMath) {
+  ppu->hudEnabled = enabled;
+  ppu->hudMinLine = minLine;
+  ppu->hudMaxLine = maxLine;
+  if(objMask) memcpy(ppu->hudObjMask, objMask, 16);
+  ppu->hudBgMask = bgMask;
+  ppu->hudWindowMath = windowMath;
+}
+
+int ppu_putHud(Ppu* ppu, uint8_t* out) {
+  int stride = (256 + 2 * ppu->wideExt) * 4;
+  int rows = ppu->frameOverscan ? 239 : 224;
+  for(int y = 0; y < rows; y++) {
+    memcpy(out + y * stride, &ppu->hudBuffer[(y + (ppu->evenFrame ? 0 : 239)) * stride], stride);
+  }
+  return rows;
+}
+
 const PpuM7Line* ppu_getM7Lines(Ppu* ppu) {
   return ppu->m7lines;
 }
@@ -339,12 +366,26 @@ void ppu_setPixelOutputFormat(Ppu* ppu, int pixelOutputFormat) {
   ppu->pixelOutputFormat = pixelOutputFormat;
 }
 
-static void ppu_handlePixel(Ppu* ppu, int x, int y) {
+typedef struct {
+  int mainLayer;        // layer that won the main screen (5 = backdrop)
+  int baseR, baseG, baseB;   // its colour before clipping / math
+  bool mathByWindow;    // colour math applied here because of the colour window
+} PpuPixInfo;
+
+static bool ppu_objIsHud(Ppu* ppu, int x) {
+  uint8_t i = ppu->objWideIndex[x + PPU_WIDE_MAX];
+  return (ppu->hudObjMask[i >> 3] >> (i & 7)) & 1;
+}
+
+static void ppu_composePixel(Ppu* ppu, int x, int y, int* pr, int* pg, int* pb,
+                             int* pr2, int* pg2, int* pb2, PpuPixInfo* info) {
   int r = 0, r2 = 0;
   int g = 0, g2 = 0;
   int b = 0, b2 = 0;
-  if(!ppu->forcedBlank) {
+  {
     int mainLayer = ppu_getPixel(ppu, x, y, false, &r, &g, &b);
+    info->mainLayer = mainLayer;
+    info->baseR = r; info->baseG = g; info->baseB = b;
     bool colorWindowState = ppu_getWindowState(ppu, 5, x);
     if(
       ppu->clipMode == 3 ||
@@ -361,6 +402,8 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
       (ppu->preventMathMode == 2 && colorWindowState) ||
       (ppu->preventMathMode == 1 && !colorWindowState)
     );
+    info->mathByWindow = mathEnabled && (ppu->preventMathMode == 1 || ppu->preventMathMode == 2);
+    if(info->mathByWindow && (ppu->hudSkip & 4)) mathEnabled = false;
     if((mathEnabled && ppu->addSubscreen) || ppu->pseudoHires || ppu->mode == 5 || ppu->mode == 6) {
       secondLayer = ppu_getPixel(ppu, x, y, true, &r2, &g2, &b2);
     }
@@ -392,6 +435,40 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
       r2 = r; g2 = g; b2 = b;
     }
   }
+  *pr = r; *pg = g; *pb = b;
+  *pr2 = r2; *pg2 = g2; *pb2 = b2;
+}
+
+static void ppu_handlePixel(Ppu* ppu, int x, int y) {
+  int r = 0, r2 = 0;
+  int g = 0, g2 = 0;
+  int b = 0, b2 = 0;
+  int hudR = 0, hudG = 0, hudB = 0, hudClass = 0;
+  if(!ppu->forcedBlank) {
+    PpuPixInfo info;
+    ppu->hudSkip = 0;
+    ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
+    if(ppu->hudEnabled && y >= ppu->hudMinLine && y <= ppu->hudMaxLine) {
+      int ml = info.mainLayer;
+      int skip = 0;
+      if((ml == 4 || ml == 6) && ppu_objIsHud(ppu, x)) {
+        hudClass = ppu_hudClassObj; skip = 1;
+        hudR = info.baseR; hudG = info.baseG; hudB = info.baseB;
+      } else if(ml < 4 && ppu->mode != 7 && ((ppu->hudBgMask >> ml) & 1)) {
+        hudClass = ppu_hudClassBg; skip = 2;
+        hudR = info.baseR; hudG = info.baseG; hudB = info.baseB;
+      } else if(ppu->hudWindowMath && info.mathByWindow) {
+        hudClass = ppu_hudClassMath | (ppu->subtractColor ? 0x10 : 0) | (ppu->halfColor ? 0x20 : 0);
+        skip = 4;
+        hudR = ppu->fixedColorR; hudG = ppu->fixedColorG; hudB = ppu->fixedColorB;
+      }
+      if(skip) {   // the picture as it would look without the HUD element
+        ppu->hudSkip = (uint8_t)skip;
+        ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
+        ppu->hudSkip = 0;
+      }
+    }
+  }
   int row = (y - 1) + (ppu->evenFrame ? 0 : 239);
   uint8_t px[6] = {
     ((b2 << 3) | (b2 >> 2)) * ppu->brightness / 15,
@@ -411,6 +488,14 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
     uint8_t* dst = &ppu->widePixelBuffer[row * stride + (x + ppu->wideExt) * 8 + ppu->pixelOutputFormat];
     dst[0] = px[0]; dst[1] = px[1]; dst[2] = px[2];
     dst[4] = px[3]; dst[5] = px[4]; dst[6] = px[5];
+  }
+  if(ppu->hudEnabled) {
+    int stride = (256 + 2 * ppu->wideExt) * 4;
+    uint8_t* h = &ppu->hudBuffer[row * stride + (x + ppu->wideExt) * 4];
+    h[0] = ((hudR << 3) | (hudR >> 2)) * ppu->brightness / 15;
+    h[1] = ((hudG << 3) | (hudG >> 2)) * ppu->brightness / 15;
+    h[2] = ((hudB << 3) | (hudB >> 2)) * ppu->brightness / 15;
+    h[3] = (uint8_t)hudClass;
   }
 }
 
@@ -433,6 +518,10 @@ static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b
       layerActive = ppu->layer[curLayer].subScreenEnabled && (
         !ppu->layer[curLayer].subScreenWindowed || !ppu_getWindowState(ppu, curLayer, x)
       );
+    }
+    if(layerActive && curLayer < 4 && (ppu->hudSkip & 2) && ppu->mode != 7 &&
+       ((ppu->hudBgMask >> curLayer) & 1)) {
+      layerActive = false;   // HUD BG layer left out of this compose pass
     }
     if(layerActive) {
       if(curLayer < 4) {
@@ -468,6 +557,7 @@ static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b
         // get a pixel from the sprite buffer
         pixel = 0;
         if(ppu->objWidePriority[x + PPU_WIDE_MAX] == curPriority) pixel = ppu->objWidePixel[x + PPU_WIDE_MAX];
+        if(pixel && (ppu->hudSkip & 1) && ppu_objIsHud(ppu, x)) pixel = 0;
       }
     }
     if(pixel > 0) {
@@ -749,6 +839,7 @@ static void ppu_evaluateSprites(Ppu* ppu, int line) {
           if(pixel > 0 && screenCol >= -ext && screenCol < 256 + ext) {
             ppu->objWidePixel[screenCol + PPU_WIDE_MAX] = 0x80 + 16 * palette + pixel;
             ppu->objWidePriority[screenCol + PPU_WIDE_MAX] = (ppu->oam[index + 1] & 0x3000) >> 12;
+            ppu->objWideIndex[screenCol + PPU_WIDE_MAX] = index >> 1;
           }
         }
       }

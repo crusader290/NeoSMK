@@ -102,6 +102,31 @@ void snesrecomp_active_video_rect(int *x, int *y, int *w, int *h);
 #define SNESRECOMP_ASPECT_16_10 1
 #define SNESRECOMP_ASPECT_16_9  2
 
+/* HUD separation for the full-screen layout (m7view.h). A game describes its
+ * HUD; while a frame is presented full-screen, the PPU renders those pixels to
+ * a separate HUD layer (and the picture without them) so the HUD can be laid
+ * out freely (scene3d_ui_hud). Presentation only. */
+typedef struct {
+    unsigned char obj_mask[16];   /* OAM entries that are HUD (bit per entry) */
+    unsigned char bg_mask;        /* BG layers (bit n = BG n+1) that are HUD on the
+                                   * race band's non-Mode-7 lines */
+    bool          window_math;    /* window-shaped colour math on the band is HUD */
+} SnesHudConfig;
+
+#define SNES_HUD_BG    1          /* classes, as tagged by the PPU */
+#define SNES_HUD_OBJ   2
+#define SNES_HUD_MATH  3
+
+typedef struct {
+    bool valid;                   /* this frame has a separated HUD */
+    int  cols, lines;             /* HUD layer size (presented picture) */
+    struct { bool present; int x0, y0, x1, y1; } box[4];   /* per class, inclusive */
+    int  math_flags;              /* SNES_HUD_MATH blend: bit 0 subtract, bit 1 half */
+} SnesHudFrame;
+
+void snesrecomp_set_hud_config(const SnesHudConfig *cfg);   /* NULL = off */
+const SnesHudFrame *snesrecomp_hud(void);
+
 /* Emulator controls (menu File -> New / Save / Load). reset() hard-resets and
  * restarts the ROM; save/load_state serialize the full machine state to/from a
  * file (LakeSnes save-state). */
@@ -151,6 +176,9 @@ void snesrecomp_dump_snapshot(const char *filepath);
  * step) as text, one line per mode-7 scanline. Camera-reconstruction debugging.
  */
 void snesrecomp_dump_m7(const char *filepath);
+
+/* Dump the 128 OAM entries (x, y, tile, palette, priority, flips, size). */
+void snesrecomp_dump_oam(const char *filepath);
 
 /*
  * Clean shutdown — frees all SNES hardware and closes SDL3.

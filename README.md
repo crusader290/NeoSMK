@@ -141,9 +141,13 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
 - **MK64 mini-turbo**, on by default. Power-slide (hop with R while steering), then flick
   the D-pad toward the *outside* of the turn: one flick gives yellow sparks, three give orange.
   Release R on orange for a short boost.
+- **MK8-style HUD**, on by default. In full-screen races the HUD moves to the corners: timer
+  and lap top-right, lives and coins bottom-left, a big position number bottom-right. The game's
+  HUD is separated from the picture by the PPU (see `docs/roadmap_mk64.md`), so what was behind
+  it shows through.
 - **Circuit map**, on by default. In full-screen races (see below), a Mario Kart 8-style
-  circuit outline in the bottom-right, with a dot per racer in its character's colour (player 1
-  ringed in white).
+  circuit outline on the right above the position number, with a dot per racer in its
+  character's colour (player 1 ringed in white).
 - **3D item boxes**, on by default. Spinning, translucent Mario Kart 64-style boxes with blob
   shadows float over the "?" panels; a box disappears once its panel is used.
 

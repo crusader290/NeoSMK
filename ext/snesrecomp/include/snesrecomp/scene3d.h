@@ -69,6 +69,12 @@ void scene3d_ui_mask(const Scene3DTex *t, float x, float y, float w, float h,
 /* Disc of radius r with a ring of `ring_px` pixels. */
 void scene3d_ui_disc(float cx, float cy, float r, const float fill[4],
                      const float ring[4], float ring_px);
+/* Separated SNES HUD (snesrecomp_hud): size in target px of class `cls`'s
+ * box at `scale` x the picture's own pixel size; false if absent this frame. */
+bool scene3d_ui_hud_size(int cls, float scale, float *w, float *h);
+/* Draw that box with its top-left at (x, y). Colour-math pixels blend the
+ * way the SNES applied them (add / subtract / half). */
+void scene3d_ui_hud(int cls, float x, float y, float scale);
 void scene3d_ui_end(void);
 
 /* Matrix helpers. */

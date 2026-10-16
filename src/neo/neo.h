@@ -59,8 +59,10 @@ static inline bool neo_band_lines(const M7View *v, const M7Band *b, int overhang
 /* 3D item boxes over the "?" panels (draws into the current scene hook). */
 void neo_itembox_draw(const Scene3DFrame *f, const M7View *v, float time_s);
 
-/* Circuit map, bottom right, in the full-screen 1-player layout. */
-void neo_minimap_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w);
+/* Circuit map in the full-screen 1-player layout: right-aligned at `right`,
+ * bottom at `bottom` (target px), at most max_h tall. */
+void neo_minimap_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w,
+                      float right, float bottom, float max_h);
 
 /* Install the 3D overlay hook. Call after snesrecomp_init. */
 void neo_install(void);

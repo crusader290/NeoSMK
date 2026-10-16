@@ -78,6 +78,11 @@ typedef struct {
 /* Copy the full-screen data for the next present (NULL: native layout). */
 void renderer_set_m7_frame(const RendererM7Frame *f);
 
+/* Separated HUD layer for the next present (RGBA + class per pixel, cols x
+ * lines; NULL: none) and the texture it lands in (0 when absent). */
+void renderer_set_hud(const uint8_t *pixels, int cols, int lines);
+unsigned renderer_hud_texture(int *cols, int *lines);
+
 /* Compose and draw one output frame into the default framebuffer of size
  * out_w x out_h (pixels). `top_inset` pixels at the top are reserved for
  * the menu bar and cleared to (bar_r, bar_g, bar_b). */

@@ -156,6 +156,46 @@ static struct {
     GLuint tex_tilemap, tex_chars, tex_pal;
 } R;
 
+/* Separated HUD layer (copied at submit, uploaded at present). */
+static uint8_t s_hud_px[(256 + 2 * 64) * 4 * 239];
+static int     s_hud_cols = 0, s_hud_lines = 0;
+static bool    s_hud_dirty = false;
+static GLuint  s_hud_tex = 0;
+
+void renderer_set_hud(const uint8_t *pixels, int cols, int lines) {
+    if (!pixels || cols <= 0 || lines <= 0 || cols > 256 + 2 * 64 || lines > 239) {
+        s_hud_cols = s_hud_lines = 0;
+        return;
+    }
+    memcpy(s_hud_px, pixels, (size_t)cols * lines * 4);
+    s_hud_cols = cols;
+    s_hud_lines = lines;
+    s_hud_dirty = true;
+}
+
+unsigned renderer_hud_texture(int *cols, int *lines) {
+    if (!R.ready || s_hud_cols == 0) return 0;
+    if (!s_hud_tex) {
+        glGenTextures(1, &s_hud_tex);
+        glBindTexture(GL_TEXTURE_2D, s_hud_tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256 + 2 * 64, 240, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        s_hud_dirty = true;
+    }
+    if (s_hud_dirty) {
+        glBindTexture(GL_TEXTURE_2D, s_hud_tex);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s_hud_cols, s_hud_lines, GL_RGBA, GL_UNSIGNED_BYTE, s_hud_px);
+        s_hud_dirty = false;
+    }
+    if (cols) *cols = s_hud_cols;
+    if (lines) *lines = s_hud_lines;
+    return s_hud_tex;
+}
+
 /* Full-screen frame data, copied at submit (outside R: survives GL re-init). */
 static RendererM7Frame s_m7;
 static bool s_m7_valid = false;
@@ -294,6 +334,7 @@ bool renderer_init(void) {
 
 void renderer_shutdown(void) {
     scene3d_shutdown();
+    if (s_hud_tex) { glDeleteTextures(1, &s_hud_tex); s_hud_tex = 0; }
     if (R.snes.prog) glDeleteProgram(R.snes.prog);
     if (R.floor.prog) glDeleteProgram(R.floor.prog);
     if (R.tex_tilemap) glDeleteTextures(1, &R.tex_tilemap);

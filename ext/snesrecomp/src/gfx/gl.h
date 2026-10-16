@@ -81,6 +81,8 @@ typedef ptrdiff_t     GLintptr;
 #define GL_LEQUAL                         0x0203
 #define GL_LESS                           0x0201
 #define GL_FUNC_ADD                       0x8006
+#define GL_FUNC_REVERSE_SUBTRACT          0x800B
+#define GL_ZERO                           0
 #define GL_RGBA8                          0x8058
 #define GL_TEXTURE0                       0x84C0
 #define GL_ARRAY_BUFFER                   0x8892

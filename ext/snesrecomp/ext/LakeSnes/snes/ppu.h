@@ -10,6 +10,7 @@ typedef struct Ppu Ppu;
 // widescreen: max extra columns per side (64 → 384 wide, past 16:9)
 #define PPU_WIDE_MAX 64
 enum { ppu_wideModeMode7 = 0, ppu_wideModeAlways = 1 };
+enum { ppu_hudClassBg = 1, ppu_hudClassObj = 2, ppu_hudClassMath = 3 };
 
 typedef struct PpuM7Line {
   bool valid;        // line rendered in mode 7 (not forced blank)
@@ -157,6 +158,20 @@ struct Ppu {
   // per-line mode-7 capture (NeoSMK, presentation only): ground position of
   // screen column x on line y is ((startX + a * x) / 256, (startY + c * x) / 256)
   PpuM7Line m7lines[240];
+  // HUD separation (NeoSMK, presentation only): pixels of HUD sprites, HUD
+  // BG layers (on non-mode-7 lines) and window-shaped colour math, on lines
+  // <= hudMaxLine, go to hudBuffer instead of the picture
+  bool hudEnabled;
+  int hudMinLine;
+  int hudMaxLine;
+  uint8_t hudObjMask[16];  // bit per OAM entry
+  uint8_t hudBgMask;       // bit n = BG n+1
+  bool hudWindowMath;
+  uint8_t hudSkip;         // internal: what the current compose pass leaves out
+  uint8_t objWideIndex[256 + 2 * PPU_WIDE_MAX];   // OAM entry behind each obj pixel
+  // (256 + 2 * wideExt) pixels per row: r, g, b, class (ppu_hudClass*, 0 = none;
+  // for window math bit 4 = subtract, bit 5 = half), both fields
+  uint8_t hudBuffer[(256 + 2 * PPU_WIDE_MAX) * 4 * 239 * 2];
 };
 
 enum { ppu_pixelOutputFormatXBGR = 0, ppu_pixelOutputFormatBGRX = 1 };
@@ -180,6 +195,11 @@ void ppu_setWidescreen(Ppu* ppu, int ext, int mode);
 // copy the last frame as (256 + 2 * ext) * 2 columns x 224/239 rows (no line
 // doubling), XBGR/BGRX like ppu_putPixels; returns the number of rows
 int ppu_putPixelsWide(Ppu* ppu, uint8_t* pixels);
+// HUD separation (see Ppu.hud*): enabled for lines minLine..maxLine
+void ppu_setHud(Ppu* ppu, bool enabled, int minLine, int maxLine, const uint8_t objMask[16],
+                uint8_t bgMask, bool windowMath);
+// copy the last frame's HUD layer like ppu_putPixelsWide (4 bytes per pixel)
+int ppu_putHud(Ppu* ppu, uint8_t* out);
 // mode-7 line capture of the last frame (lines 1..239 at index line - 1)
 const PpuM7Line* ppu_getM7Lines(Ppu* ppu);
 

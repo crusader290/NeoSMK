@@ -16,11 +16,14 @@
 #include <snesrecomp/m7view.h>
 #include <snesrecomp/menu_overlay.h>
 #include <snesrecomp/scene3d.h>
+#include <snesrecomp/snesrecomp.h>
+#include <string.h>
 
 /* options (persisted in smk_config.ini) */
 static int s_markers = 0;
 static int s_itemboxes = 1;
 static int s_minimap = 1;
+static int s_mk8_hud = 1;
 
 
 static Scene3DMesh *s_pyramid = NULL;
@@ -118,6 +121,45 @@ static void draw_player_fx(const Scene3DFrame *f, const M7View *v, const NeoWorl
     }
 }
 
+/* SMK's HUD as the PPU tags it (snesrecomp_set_hud_config): lives / coins are
+ * OAM 16-23, timer + lap box are BG2 of the Mode-0 scenery strip (BG3/BG4 are
+ * the hills and trees), and the position
+ * numeral is window-shaped colour math (fixed colour added inside colour
+ * windows 1 | 2, reshaped per line by HDMA). */
+static void configure_hud(void) {
+    if (!s_mk8_hud) { snesrecomp_set_hud_config(NULL); return; }
+    SnesHudConfig c;
+    memset(&c, 0, sizeof(c));
+    c.obj_mask[16 >> 3] = 0xFF;          /* OAM 16..23 */
+    c.bg_mask = 1 << 1;                  /* BG2 */
+    c.window_math = true;
+    snesrecomp_set_hud_config(&c);
+}
+
+/* Mario Kart 8 placement: timer top right, lives / coins bottom left, a big
+ * position numeral bottom right with the circuit map above it. */
+static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) {
+    static int applied = -1;
+    if (applied != s_mk8_hud) { configure_hud(); applied = s_mk8_hud; }
+    float tw = (float)f->target_w, th = (float)f->target_h;
+    float m = th * 0.03f;
+    float bottom = th - m;
+    scene3d_ui_begin(f);
+    if (s_mk8_hud) {
+        float wd, ht;
+        if (scene3d_ui_hud_size(SNES_HUD_BG, 1.0f, &wd, &ht))
+            scene3d_ui_hud(SNES_HUD_BG, tw - m - wd, m, 1.0f);
+        if (scene3d_ui_hud_size(SNES_HUD_OBJ, 1.25f, &wd, &ht))
+            scene3d_ui_hud(SNES_HUD_OBJ, m, th - m - ht, 1.25f);
+        if (scene3d_ui_hud_size(SNES_HUD_MATH, 2.0f, &wd, &ht)) {
+            scene3d_ui_hud(SNES_HUD_MATH, tw - m - wd, th - m - ht, 2.0f);
+            bottom = th - m - ht - m * 0.5f;
+        }
+    }
+    scene3d_ui_end();
+    if (s_minimap) neo_minimap_draw(f, v, w, tw - m, bottom, th * 0.30f);
+}
+
 static void neo_scene(const Scene3DFrame *f, void *user) {
     (void)user;
     const M7View *v = snesrecomp_m7_view();
@@ -130,7 +172,7 @@ static void neo_scene(const Scene3DFrame *f, void *user) {
     if (s_itemboxes) neo_itembox_draw(f, v, frames / 60.0f);
     draw_player_fx(f, v, &w);
     if (s_markers) draw_markers(f, v, &w);
-    if (s_minimap) neo_minimap_draw(f, v, &w);
+    if (v->layout == M7_LAYOUT_FULLSCREEN) draw_hud(f, v, &w);
 }
 
 void neo_register_options(void) {
@@ -142,6 +184,9 @@ void neo_register_options(void) {
                             "Mario Kart 8-style circuit map with racer positions in the\n"
                             "bottom right of full-screen single-player races\n"
                             "(Graphics -> Full-screen 1P races).");
+    menu_overlay_add_option("NeoSMK", "MK8-style HUD (full-screen)", "neo_mk8_hud", &s_mk8_hud, 1, NULL,
+                            "Move the timer, lives / coins and position number to the\n"
+                            "screen corners in full-screen single-player races.");
     menu_overlay_add_option("Debug", "3D camera markers", "neo_debug_markers", &s_markers,
                             1, NULL,
                             "Float a 3D marker over every racer using the camera\n"
