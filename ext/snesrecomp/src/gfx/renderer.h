@@ -78,6 +78,12 @@ typedef struct {
 /* Copy the full-screen data for the next present (NULL: native layout). */
 void renderer_set_m7_frame(const RendererM7Frame *f);
 
+/* Lines the PPU rendered above the race band's first visible line
+ * (full-screen layout; same 8-bytes-per-column XBGR pairs as the SNES frame,
+ * row 0 topmost; NULL: none). Drawn directly above the band. */
+#define RENDERER_ABOVE_MAX 64
+void renderer_set_above(const uint8_t *pixels, int cols, int lines);
+
 /* Separated HUD layer for the next present (RGBA + class per pixel, cols x
  * lines; NULL: none) and the texture it lands in (0 when absent). */
 void renderer_set_hud(const uint8_t *pixels, int cols, int lines);

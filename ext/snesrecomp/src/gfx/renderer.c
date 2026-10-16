@@ -196,6 +196,23 @@ unsigned renderer_hud_texture(int *cols, int *lines) {
     return s_hud_tex;
 }
 
+/* Lines above the race band (full-screen layout), copied at submit. */
+static uint8_t s_above_px[(256 + 2 * 64) * 8 * RENDERER_ABOVE_MAX];
+static int     s_above_cols = 0, s_above_lines = 0;
+static bool    s_above_dirty = false;
+static GLuint  s_above_tex = 0;
+
+void renderer_set_above(const uint8_t *pixels, int cols, int lines) {
+    if (!pixels || cols <= 0 || lines <= 0 || cols > 256 + 2 * 64 || lines > RENDERER_ABOVE_MAX) {
+        s_above_cols = s_above_lines = 0;
+        return;
+    }
+    memcpy(s_above_px, pixels, (size_t)cols * lines * 8);
+    s_above_cols = cols;
+    s_above_lines = lines;
+    s_above_dirty = true;
+}
+
 /* Full-screen frame data, copied at submit (outside R: survives GL re-init). */
 static RendererM7Frame s_m7;
 static bool s_m7_valid = false;
@@ -335,6 +352,7 @@ bool renderer_init(void) {
 void renderer_shutdown(void) {
     scene3d_shutdown();
     if (s_hud_tex) { glDeleteTextures(1, &s_hud_tex); s_hud_tex = 0; }
+    if (s_above_tex) { glDeleteTextures(1, &s_above_tex); s_above_tex = 0; }
     if (R.snes.prog) glDeleteProgram(R.snes.prog);
     if (R.floor.prog) glDeleteProgram(R.floor.prog);
     if (R.tex_tilemap) glDeleteTextures(1, &R.tex_tilemap);
@@ -426,6 +444,37 @@ static void draw_fullscreen_m7(void) {
     glUniform1f(R.f_ext, (float)((m->cols - 256) / 2));
     glUniform1i(R.f_outside, m->outside);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    /* the PPU's lines above the band (scenery and sprites the SNES screen
+     * cut off), over the sky fill */
+    if (s_above_lines > 0) {
+        if (!s_above_tex) {
+            s_above_tex = make_texture(SNES_TEX_W, RENDERER_ABOVE_MAX, GL_LINEAR, NULL);
+            s_above_dirty = true;
+        }
+        if (s_above_dirty) {
+            glBindTexture(GL_TEXTURE_2D, s_above_tex);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s_above_cols * 2, s_above_lines,
+                            GL_RGBA, GL_UNSIGNED_BYTE, s_above_px);
+            s_above_dirty = false;
+        }
+        int first = m->band_first - 1 + m->line_offset - s_above_lines;   /* 0-based */
+        int atop = (int)((float)first / m->lines * R.int_h + 0.5f);
+        int abot = (int)((float)(first + s_above_lines) / m->lines * R.int_h + 0.5f);
+        if (atop < 0) atop = 0;
+        if (abot > atop) {
+            float half = 0.5f / RENDERER_ABOVE_MAX;
+            float rect[4] = {
+                0.0f, half,
+                (float)(s_above_cols * 2) / SNES_TEX_W,
+                (float)s_above_lines / RENDERER_ABOVE_MAX - 2.0f * half,
+            };
+            glViewport(0, R.int_h - abot, R.int_w, abot - atop);
+            draw_pass(&R.snes, s_above_tex, rect, true);
+            glViewport(0, 0, R.int_w, R.int_h);
+        }
+    }
 
     /* the SNES race band, 1:1, shifted down by line_offset */
     int top = (int)((float)(m->band_first - 1 + m->line_offset) / m->lines * R.int_h + 0.5f);

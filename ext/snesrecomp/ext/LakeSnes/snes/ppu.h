@@ -9,6 +9,8 @@ typedef struct Ppu Ppu;
 
 // widescreen: max extra columns per side (64 → 384 wide, past 16:9)
 #define PPU_WIDE_MAX 64
+// upward extension: max virtual lines rendered above the picture
+#define PPU_ABOVE_MAX 64
 enum { ppu_wideModeMode7 = 0, ppu_wideModeAlways = 1 };
 enum { ppu_hudClassBg = 1, ppu_hudClassObj = 2, ppu_hudClassMath = 3 };
 
@@ -172,6 +174,17 @@ struct Ppu {
   // (256 + 2 * wideExt) pixels per row: r, g, b, class (ppu_hudClass*, 0 = none;
   // for window math bit 4 = subtract, bit 5 = half), both fields
   uint8_t hudBuffer[(256 + 2 * PPU_WIDE_MAX) * 4 * 239 * 2];
+  // Upward extension (NeoSMK, presentation only): when line aboveFromLine is
+  // reached (non-mode-7), aboveLines virtual lines above it are rendered with
+  // that line's registers into aboveBuffer, row 0 = the topmost virtual line.
+  // Each BG layer stops at its first fully transparent row (no wrapped rows),
+  // only sprites wrapping past line 255 count, and HUD layers are left out.
+  int aboveLines;
+  int aboveFromLine;
+  int aboveRendered;       // lines actually rendered this frame
+  bool evalAbove;          // internal: evaluating sprites for a virtual line
+  uint8_t aboveBgSkip;     // internal: BG layers left out of the current virtual line
+  uint8_t aboveBuffer[(256 + 2 * PPU_WIDE_MAX) * 8 * PPU_ABOVE_MAX];
 };
 
 enum { ppu_pixelOutputFormatXBGR = 0, ppu_pixelOutputFormatBGRX = 1 };
@@ -200,6 +213,10 @@ void ppu_setHud(Ppu* ppu, bool enabled, int minLine, int maxLine, const uint8_t 
                 uint8_t bgMask, bool windowMath);
 // copy the last frame's HUD layer like ppu_putPixelsWide (4 bytes per pixel)
 int ppu_putHud(Ppu* ppu, uint8_t* out);
+// upward extension (see Ppu.above*): `lines` virtual lines above `fromLine`
+void ppu_setAbove(Ppu* ppu, int lines, int fromLine);
+// copy them (wide layout, 8 bytes per column); returns the number of lines
+int ppu_putAbove(Ppu* ppu, uint8_t* out);
 // mode-7 line capture of the last frame (lines 1..239 at index line - 1)
 const PpuM7Line* ppu_getM7Lines(Ppu* ppu);
 

@@ -90,6 +90,11 @@ Ppu* ppu_init(Snes* snes) {
   ppu->hudWindowMath = false;
   ppu->hudSkip = 0;
   memset(ppu->hudBuffer, 0, sizeof(ppu->hudBuffer));
+  ppu->aboveLines = 0;
+  ppu->aboveFromLine = 0;
+  ppu->aboveRendered = 0;
+  ppu->evalAbove = false;
+  ppu->aboveBgSkip = 0;
   return ppu;
 }
 
@@ -281,10 +286,24 @@ void ppu_handleFrameStart(Ppu* ppu) {
     (ppu->wideMode == ppu_wideModeAlways || ppu->wideSawMode7);
   ppu->wideSawMode7 = false;
   for(int i = 0; i < 240; i++) ppu->m7lines[i].valid = false;
+  ppu->aboveRendered = 0;
 }
+
+typedef struct PpuPixInfo {
+  int mainLayer;        // layer that won the main screen (5 = backdrop)
+  int baseR, baseG, baseB;   // its colour before clipping / math
+  bool mathByWindow;    // colour math applied here because of the colour window
+} PpuPixInfo;
+
+static void ppu_composePixel(Ppu* ppu, int x, int y, int* pr, int* pg, int* pb,
+                             int* pr2, int* pg2, int* pb2, PpuPixInfo* info);
+static void ppu_renderAbove(Ppu* ppu, int fromLine);
 
 void ppu_runLine(Ppu* ppu, int line) {
   // called for lines 1-224/239
+  if(ppu->aboveLines > 0 && line == ppu->aboveFromLine && !ppu->forcedBlank && ppu->mode != 7) {
+    ppu_renderAbove(ppu, line);
+  }
   // evaluate sprites
   memset(ppu->objPixelBuffer, 0, sizeof(ppu->objPixelBuffer));
   memset(ppu->objWidePixel, 0, sizeof(ppu->objWidePixel));
@@ -316,6 +335,86 @@ void ppu_runLine(Ppu* ppu, int line) {
     memset(row, 0, ppu->wideExt * 8);
     memset(row + (256 + ppu->wideExt) * 8, 0, ppu->wideExt * 8);
   }
+}
+
+void ppu_setAbove(Ppu* ppu, int lines, int fromLine) {
+  if(lines < 0) lines = 0;
+  if(lines > PPU_ABOVE_MAX) lines = PPU_ABOVE_MAX;
+  ppu->aboveLines = lines;
+  ppu->aboveFromLine = fromLine;
+}
+
+int ppu_putAbove(Ppu* ppu, uint8_t* out) {
+  int stride = (256 + 2 * ppu->wideExt) * 8;
+  memcpy(out, ppu->aboveBuffer, (size_t)stride * ppu->aboveRendered);
+  return ppu->aboveRendered;
+}
+
+// Does BG `layer` have any opaque pixel on (virtual) line y? Modes 0/1/3 only;
+// others report false so the layer isn't extended.
+static bool ppu_bgRowHasPixels(Ppu* ppu, int layer, int y, int ext) {
+  if(ppu->mode != 0 && ppu->mode != 1 && ppu->mode != 3) return false;
+  if(bitDepthsPerMode[ppu->mode][layer] > 4 && ppu->mode != 3) return false;   // layer absent in this mode
+  if(ppu->mode == 3 && layer > 1) return false;
+  int ly = (y + ppu->bgLayer[layer].vScroll) & 0x3ff;
+  for(int x = -ext; x < 256 + ext; x++) {
+    int lx = (x + ppu->bgLayer[layer].hScroll) & 0x3ff;
+    if(ppu_getPixelForBgLayer(ppu, lx, ly, layer, false) ||
+       ppu_getPixelForBgLayer(ppu, lx, ly, layer, true)) return true;
+  }
+  return false;
+}
+
+// Render ppu->aboveLines virtual lines above `fromLine` with the current
+// registers, bottom-up. A BG layer is extended only while it has content:
+// once one of its rows is fully transparent, its top edge has been passed
+// and everything above (wrapped tilemap rows) is left out. Sprites are only
+// those that wrap past line 255. Sprite evaluation is redone per virtual
+// line, so the CPU-visible range/time-over flags and the line buffers are
+// saved and put back.
+static void ppu_renderAbove(Ppu* ppu, int fromLine) {
+  bool rangeOver = ppu->rangeOver, timeOver = ppu->timeOver;
+  uint8_t objPix[256], objPri[256];
+  memcpy(objPix, ppu->objPixelBuffer, 256);
+  memcpy(objPri, ppu->objPriorityBuffer, 256);
+  int n = ppu->aboveLines;
+  int ext = ppu->wideFrame ? ppu->wideExt : 0;
+  int stride = (256 + 2 * ppu->wideExt) * 8;
+  uint8_t stopped = 0;
+  for(int i = n - 1; i >= 0; i--) {
+    int v = fromLine - n + i;        // virtual line (may be <= 0)
+    for(int l = 0; l < 4; l++) {
+      if(!(stopped & (1 << l)) && !ppu_bgRowHasPixels(ppu, l, v, ext)) stopped |= 1 << l;
+    }
+    memset(ppu->objPixelBuffer, 0, sizeof(ppu->objPixelBuffer));
+    memset(ppu->objWidePixel, 0, sizeof(ppu->objWidePixel));
+    ppu->evalAbove = true;
+    ppu_evaluateSprites(ppu, v - 1);
+    ppu->evalAbove = false;
+    uint8_t* row = &ppu->aboveBuffer[i * stride];
+    memset(row, 0, stride);
+    ppu->aboveBgSkip = stopped;
+    for(int x = -ext; x < 256 + ext; x++) {
+      int r, g, b, r2, g2, b2;
+      PpuPixInfo info;
+      ppu->hudSkip = 1 | 2 | 4;      // HUD sprites / BG and window math left out
+      ppu_composePixel(ppu, x, v, &r, &g, &b, &r2, &g2, &b2, &info);
+      ppu->hudSkip = 0;
+      uint8_t* dst = &row[(x + ppu->wideExt) * 8 + ppu->pixelOutputFormat];
+      dst[0] = ((b2 << 3) | (b2 >> 2)) * ppu->brightness / 15;
+      dst[1] = ((g2 << 3) | (g2 >> 2)) * ppu->brightness / 15;
+      dst[2] = ((r2 << 3) | (r2 >> 2)) * ppu->brightness / 15;
+      dst[4] = ((b << 3) | (b >> 2)) * ppu->brightness / 15;
+      dst[5] = ((g << 3) | (g >> 2)) * ppu->brightness / 15;
+      dst[6] = ((r << 3) | (r >> 2)) * ppu->brightness / 15;
+    }
+    ppu->aboveBgSkip = 0;
+  }
+  ppu->aboveRendered = n;
+  ppu->rangeOver = rangeOver;
+  ppu->timeOver = timeOver;
+  memcpy(ppu->objPixelBuffer, objPix, 256);
+  memcpy(ppu->objPriorityBuffer, objPri, 256);
 }
 
 void ppu_setHud(Ppu* ppu, bool enabled, int minLine, int maxLine, const uint8_t objMask[16],
@@ -365,12 +464,6 @@ int ppu_putPixelsWide(Ppu* ppu, uint8_t* pixels) {
 void ppu_setPixelOutputFormat(Ppu* ppu, int pixelOutputFormat) {
   ppu->pixelOutputFormat = pixelOutputFormat;
 }
-
-typedef struct {
-  int mainLayer;        // layer that won the main screen (5 = backdrop)
-  int baseR, baseG, baseB;   // its colour before clipping / math
-  bool mathByWindow;    // colour math applied here because of the colour window
-} PpuPixInfo;
 
 static bool ppu_objIsHud(Ppu* ppu, int x) {
   uint8_t i = ppu->objWideIndex[x + PPU_WIDE_MAX];
@@ -522,6 +615,9 @@ static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b
     if(layerActive && curLayer < 4 && (ppu->hudSkip & 2) && ppu->mode != 7 &&
        ((ppu->hudBgMask >> curLayer) & 1)) {
       layerActive = false;   // HUD BG layer left out of this compose pass
+    }
+    if(layerActive && curLayer < 4 && ((ppu->aboveBgSkip >> curLayer) & 1)) {
+      layerActive = false;   // virtual line above this layer's content
     }
     if(layerActive) {
       if(curLayer < 4) {
@@ -771,7 +867,9 @@ static void ppu_evaluateSprites(Ppu* ppu, int line) {
     uint8_t row = line - y;
     int spriteSize = spriteSizes[ppu->objSize][(ppu->highOam[index >> 3] >> ((index & 7) + 1)) & 1];
     int spriteHeight = ppu->objInterlace ? spriteSize / 2 : spriteSize;
-    if(row < spriteHeight) {
+    // virtual lines above the screen: only sprites that wrap past line 255
+    // (others are parked off the bottom or belong to the lower screen)
+    if(row < spriteHeight && (!ppu->evalAbove || y + spriteHeight > 256)) {
       // in y-range, get the x location, using the high bit as well
       int x = ppu->oam[index] & 0xff;
       x |= ((ppu->highOam[index >> 3] >> (index & 7)) & 1) << 8;

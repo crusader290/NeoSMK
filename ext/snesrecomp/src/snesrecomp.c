@@ -215,6 +215,25 @@ static void apply_hud(void) {
                s_hud_cfg.bg_mask, s_hud_cfg.window_math);
 }
 
+/* Upward extension (full-screen layout): the PPU renders the lines that sit
+ * above the band's first visible line, which the band shift uncovers. */
+static uint8_t s_above_buf[(256 + 2 * PPU_WIDE_MAX) * 8 * PPU_ABOVE_MAX];
+
+static void apply_above(void) {
+    int n = 0;
+    if (s_view.layout == M7_LAYOUT_FULLSCREEN) {
+        n = s_view.line_offset + s_view.top_skip;
+        if (n > PPU_ABOVE_MAX) n = PPU_ABOVE_MAX;
+        if (n > RENDERER_ABOVE_MAX) n = RENDERER_ABOVE_MAX;
+    }
+    ppu_setAbove(s_snes->ppu, n, s_view.top_skip + 1);
+}
+
+static void collect_above(int cols) {
+    int n = s_view.layout == M7_LAYOUT_FULLSCREEN ? ppu_putAbove(s_snes->ppu, s_above_buf) : 0;
+    renderer_set_above(n > 0 ? s_above_buf : NULL, cols, n);
+}
+
 /* After a frame: copy the HUD layer and box each class. */
 static void collect_hud(int cols) {
     s_hud.valid = false;
@@ -380,6 +399,7 @@ static void submit_video(void) {
     }
     renderer_set_m7_frame(s_view.layout == M7_LAYOUT_FULLSCREEN ? &s_m7frame : NULL);
     collect_hud(width / 2);
+    collect_above(width / 2);
     platform_submit_frame(pix, width, row0, rows);
 }
 
@@ -418,6 +438,7 @@ void snesrecomp_end_frame(void) {
     /* Start-of-frame PPU bookkeeping (toggles evenFrame, resets mosaic, etc.) */
     apply_widescreen();
     apply_hud();
+    apply_above();
     ppu_handleFrameStart(s_snes->ppu);
     s_snes->input2->scopeLatched = false; /* reset Super Scope latch for new frame */
 
@@ -550,6 +571,7 @@ void snesrecomp_realframe_end(void) {
     if (!s_snes) return;
     apply_widescreen();
     apply_hud();
+    apply_above();
     snes_runFrame(s_snes);
     snes_setPixels(s_snes, s_pixel_buf);
     snes_setSamples(s_snes, s_audio_buf, SAMPLES_PER_FRAME);

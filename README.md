@@ -154,8 +154,10 @@ FXAA, scanlines and an FPS overlay. Settings save to `smk_config.ini`.
 **Graphics → Full-screen 1P races** (on by default) makes single-player races fill the screen
 instead of using the top half. The game's race view is shifted down (horizon at ~30% of the
 screen), and the track below it is rendered on the GPU straight from the Mode-7 tilemap through
-the reconstructed camera, so the perspective continues seamlessly. Sky fills the top, and the
-split-screen overview map is replaced by the circuit map. Two-player races keep the native
+the reconstructed camera, so the perspective continues seamlessly. Above the race view, the PPU
+renders the extra lines the shift uncovers, so clouds, scenery and Lakitu with the start lights
+are no longer cut off at the top, and the sky colour fills the rest. The split-screen overview
+map is replaced by the circuit map. Two-player races keep the native
 split.
 
 **Debug → 3D camera markers** floats a 3D marker over every racer. It checks the camera that

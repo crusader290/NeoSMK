@@ -62,9 +62,17 @@ also perspective (slightly tilted) but its horizon is far above it, so it doesn'
 chase bands (2-player) keep the native split. The band is drawn 1:1, shifted down so the horizon
 sits at ~30% of the screen. The rows below are ray-cast onto the ground plane on the GPU
 (`kFloorFS` in `renderer.c`: tilemap → character → palette, like the PPU, with per-line
-brightness), and the sky colour fills the top. The overview map is replaced by a circuit map
-built from the tile behaviours (`src/neo/neo_minimap.c`). The 3D layer follows the shifted
-view through `M7View.line_offset`.
+brightness). The overview map is replaced by a circuit map built from the tile behaviours
+(`src/neo/neo_minimap.c`). The 3D layer follows the shifted view through `M7View.line_offset`.
+
+Shifting the band down uncovers lines that the SNES never drew, and the game's scenery strip
+and Lakitu were cut at the old top edge. The PPU extends the picture upward (presentation
+only, `ppu_setAbove` in LakeSnes): when it reaches the band's first visible line, it renders
+up to 64 virtual lines above it with that line's registers. Each BG layer is extended only
+until one of its rows is fully transparent, so its wrapped tilemap rows never show. Sprites
+count only if they wrap past line 255, which leaves out sprites parked off the bottom and the
+lower screen's sprites. HUD layers are left out, and the CPU-visible sprite flags are put back.
+The renderer draws these lines directly above the band, and the sky colour fills what's left.
 
 ### Mario Kart 8-style HUD — done
 
