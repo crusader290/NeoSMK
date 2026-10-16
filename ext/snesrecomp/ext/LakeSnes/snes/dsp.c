@@ -183,11 +183,25 @@ void dsp_handleState(Dsp* dsp, StateHandler* sh) {
   sh_handleByteArray(sh, dsp->ram, 0x80);
 }
 
+void dsp_setPresentMask(Dsp* dsp, uint8_t mask, int keepAdr) {
+  dsp->presentKeepAdr = keepAdr;
+  if(mask && !dsp->presentMask) {
+    // start the shadow echo from the real one so a mid-song switch is seamless
+    for(int i = 0; i < 0x8000; i++) {
+      dsp->presEcho[i] = (int16_t) (dsp->apu->ram[(i * 2) & 0xffff] | (dsp->apu->ram[(i * 2 + 1) & 0xffff] << 8));
+    }
+    memcpy(dsp->presFirL, dsp->firBufferL, sizeof(dsp->presFirL));
+    memcpy(dsp->presFirR, dsp->firBufferR, sizeof(dsp->presFirR));
+  }
+  dsp->presentMask = mask;
+}
+
 void dsp_cycle(Dsp* dsp) {
   dsp->sampleOutL = 0;
   dsp->sampleOutR = 0;
   dsp->echoOutL = 0;
   dsp->echoOutR = 0;
+  dsp->presOutL = dsp->presOutR = dsp->presEchoL = dsp->presEchoR = 0;
   for(int i = 0; i < 8; i++) {
     dsp_cycleChannel(dsp, i);
   }
@@ -199,6 +213,13 @@ void dsp_cycle(Dsp* dsp) {
   if(dsp->mute) {
     dsp->sampleOutL = 0;
     dsp->sampleOutR = 0;
+  }
+  if(dsp->presentMask) {
+    // presentation output replaces the emulated one in the sample buffer
+    // (the sample buffer only feeds the host's audio output)
+    dsp->sampleBuffer[(dsp->sampleOffset & 0x3ff) * 2] = dsp->mute ? 0 : (int16_t) dsp->presOutL;
+    dsp->sampleBuffer[(dsp->sampleOffset++ & 0x3ff) * 2 + 1] = dsp->mute ? 0 : (int16_t) dsp->presOutR;
+    return;
   }
   // put final sample in the samplebuffer
   dsp->sampleBuffer[(dsp->sampleOffset & 0x3ff) * 2] = dsp->sampleOutL;
@@ -241,6 +262,26 @@ static void dsp_handleEcho(Dsp* dsp) {
   }
   sumL = clamp16(sumL) & ~1;
   sumR = clamp16(sumR) & ~1;
+  if(dsp->presentMask) {
+    // the same FIR over the shadow echo buffer, for the presentation mix
+    int pi = ((adr) >> 1) & 0x7fff;
+    dsp->presFirL[dsp->firBufferIndex] = dsp->presEcho[pi] >> 1;
+    dsp->presFirR[dsp->firBufferIndex] = dsp->presEcho[(pi + 1) & 0x7fff] >> 1;
+    int pl = 0, pr = 0;
+    for(int i = 0; i < 8; i++) {
+      pl += (dsp->presFirL[(dsp->firBufferIndex + i + 1) & 0x7] * dsp->firValues[i]) >> 6;
+      pr += (dsp->presFirR[(dsp->firBufferIndex + i + 1) & 0x7] * dsp->firValues[i]) >> 6;
+      if(i == 6) { pl = clip16(pl); pr = clip16(pr); }
+    }
+    pl = clamp16(pl) & ~1;
+    pr = clamp16(pr) & ~1;
+    dsp->presOutL = clamp16(((dsp->presOutL * dsp->masterVolumeL) >> 7) + ((pl * dsp->echoVolumeL) >> 7));
+    dsp->presOutR = clamp16(((dsp->presOutR * dsp->masterVolumeR) >> 7) + ((pr * dsp->echoVolumeR) >> 7));
+    if(dsp->echoWrites) {
+      dsp->presEcho[pi] = (int16_t) (clamp16(dsp->presEchoL + clip16((pl * dsp->feedbackVolume) >> 7)) & ~1);
+      dsp->presEcho[(pi + 1) & 0x7fff] = (int16_t) (clamp16(dsp->presEchoR + clip16((pr * dsp->feedbackVolume) >> 7)) & ~1);
+    }
+  }
   // apply master volume and modify output with sum
   dsp->sampleOutL = clamp16(((dsp->sampleOutL * dsp->masterVolumeL) >> 7) + ((sumL * dsp->echoVolumeL) >> 7));
   dsp->sampleOutR = clamp16(((dsp->sampleOutR * dsp->masterVolumeR) >> 7) + ((sumR * dsp->echoVolumeR) >> 7));
@@ -344,6 +385,16 @@ static void dsp_cycleChannel(Dsp* dsp, int ch) {
   dsp->ram[(ch << 4) | 8] = dsp->channel[ch].gain >> 4;
   dsp->ram[(ch << 4) | 9] = sample >> 8;
   dsp->channel[ch].sampleOut = sample;
+  uint8_t presMask = dsp->presentMask;
+  if(presMask && dsp->presentKeepAdr >= 0) presMask &= (uint8_t) ~dsp->apu->ram[dsp->presentKeepAdr & 0xffff];
+  if(dsp->presentMask && !((presMask >> ch) & 1) && !dsp->channelMuted[ch]) {
+    dsp->presOutL = clamp16(dsp->presOutL + ((sample * dsp->channel[ch].volumeL) >> 7));
+    dsp->presOutR = clamp16(dsp->presOutR + ((sample * dsp->channel[ch].volumeR) >> 7));
+    if(dsp->channel[ch].echoEnable) {
+      dsp->presEchoL = clamp16(dsp->presEchoL + ((sample * dsp->channel[ch].volumeL) >> 7));
+      dsp->presEchoR = clamp16(dsp->presEchoR + ((sample * dsp->channel[ch].volumeR) >> 7));
+    }
+  }
   if(!dsp->channelMuted[ch]) {
     dsp->sampleOutL = clamp16(dsp->sampleOutL + ((sample * dsp->channel[ch].volumeL) >> 7));
     dsp->sampleOutR = clamp16(dsp->sampleOutR + ((sample * dsp->channel[ch].volumeR) >> 7));
@@ -522,6 +573,7 @@ void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val) {
     case 0x4c: {
       for(int i = 0; i < 8; i++) {
         dsp->channel[i].keyOn = val & (1 << i);
+        if(val & (1 << i)) dsp->keyOnCount[i]++;
       }
       break;
     }

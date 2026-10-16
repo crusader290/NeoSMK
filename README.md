@@ -76,6 +76,19 @@ layout.
   as you like for 7.5 s), triple green or red shells, or a banana bunch. Dots under the item
   box show the uses left. Player 1 only for now.
 
+**Custom race music** (Sound menu):
+
+- Put your own `.mp3` files in the `music/` folder next to `neosmk` and turn on **Sound →
+  Custom race music**. A different song plays each race while the course music would, and the
+  game's sound effects (engines, items, Lakitu) stay. The countdown and finish music are the
+  game's own. **Race music volume** sets the level. The folder is read again at every race, so
+  songs can be added while the game runs.
+- Under the hood, SMK's sound driver keeps a mask of the voices that are playing sound effects
+  (sound RAM `$1A`), and its course-music slot (`$04` = 4). NeoSMK leaves the other voices out
+  of the audio output with a second, presentation-only mix inside the sound chip, so the
+  emulated sound chip and its echo memory are untouched: replays, save states and netplay are
+  unaffected.
+
 **Platform:**
 
 - Fixed 60.0988 Hz game logic (one NTSC SNES frame per tick) with an independent renderer;
@@ -211,6 +224,7 @@ binary (the ARM64 one under qemu). Pushing a `v*` tag publishes a release with
 | `SMK_SHOT_AT="frame:file.bmp,…"` | screenshot the frame presented after logic frame N |
 | `SMK_POKE16="frame:addr:value,…"` | write a WRAM word (hex) after logic frame N, for test setups like a cheat code |
 | `SMK_ITEM_ROLL=0..99`, `SMK_ITEM_TRIPLE_ANY=1` | MK64 items testing: fixed variant roll, or every item comes as a triple |
+| `SMK_AUDIO_DUMP=<file.wav>` | write the audio output (after custom music) to a WAV file |
 | `SMK_DUMP_M7=<prefix>` | per-scanline Mode-7 state every 60 frames (camera debugging) |
 | `SMK_SHELLS=1`, `SMK_RECOMP=1`, … | upstream recompilation development modes (see `docs/`) |
 

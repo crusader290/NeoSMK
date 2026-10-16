@@ -85,6 +85,17 @@ struct Dsp {
   uint16_t sampleOffset; // current offset in samplebuffer
   // per-channel mute (set by host)
   bool channelMuted[8];
+  // Presentation mix (NeoSMK): when presentMask != 0, the output samples are
+  // a second mix without the masked voices (bit per channel), with its own
+  // echo FIR / buffer, so the emulated mix and the echo data in APU RAM stay
+  // exactly as on hardware. Never serialized.
+  uint8_t presentMask;
+  int presentKeepAdr;            // APU RAM byte of voices kept audible anyway (-1 = none), read live
+  int presOutL, presOutR, presEchoL, presEchoR;
+  int16_t presFirL[8], presFirR[8];
+  int16_t presEcho[0x8000];      // shadow echo buffer, indexed like APU RAM (echoBufferAdr + index) / 2
+  // key-on count per channel since the last read (for voice analysis)
+  uint32_t keyOnCount[8];
 };
 
 Dsp* dsp_init(Apu* apu);
@@ -94,6 +105,7 @@ void dsp_handleState(Dsp* dsp, StateHandler* sh);
 void dsp_cycle(Dsp* dsp);
 uint8_t dsp_read(Dsp* dsp, uint8_t adr);
 void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val);
+void dsp_setPresentMask(Dsp* dsp, uint8_t mask, int keepAdr);
 void dsp_getSamples(Dsp* dsp, int16_t* sampleData, int samplesPerFrame);
 
 #endif

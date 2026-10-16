@@ -56,6 +56,7 @@ add_library(smk_game OBJECT
     src/neo/neo_pipes.c
     src/neo/neo_karts.c
     src/neo/neo_items.c
+    src/neo/neo_music.c
     src/neo/neo_minimap.c
 )
 target_include_directories(smk_game PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
@@ -88,3 +89,4 @@ endif()
 
 install(TARGETS neosmk RUNTIME DESTINATION .)
 install(FILES README.md LICENSE THIRD_PARTY_LICENSES.md DESTINATION .)
+install(FILES dist/music-README.txt DESTINATION music RENAME README.txt)

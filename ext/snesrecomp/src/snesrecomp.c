@@ -7,6 +7,8 @@
 
 #include "snesrecomp/snesrecomp.h"
 #include "snesrecomp/mp_session.h"
+#include "dsp.h"
+#include "apu.h"
 #include "snesrecomp/menu_overlay.h"
 #include "m7view_internal.h"
 #include "gfx/renderer.h"
@@ -291,6 +293,59 @@ void snesrecomp_set_ui_anchors(const int8_t obj[128], const int8_t bg[4], int bg
 
 static SnesPreFrameHook s_preframe = NULL;
 static void            *s_preframe_user = NULL;
+
+void snesrecomp_set_music_mask(uint8_t voices, int keep_addr) {
+    if (s_snes && s_snes->apu && s_snes->apu->dsp) dsp_setPresentMask(s_snes->apu->dsp, voices, keep_addr);
+}
+
+void snesrecomp_voice_keyons(uint32_t out[8]) {
+    for (int i = 0; i < 8; i++) {
+        out[i] = s_snes && s_snes->apu && s_snes->apu->dsp ? s_snes->apu->dsp->keyOnCount[i] : 0;
+    }
+}
+
+uint8_t snesrecomp_apu_port(int port) {
+    return s_snes && s_snes->apu && port >= 0 && port < 4 ? s_snes->apu->inPorts[port] : 0;
+}
+
+uint8_t snesrecomp_apu_ram(uint16_t addr) {
+    return s_snes && s_snes->apu ? s_snes->apu->ram[addr] : 0;
+}
+
+static SnesAudioHook s_audio_hook = NULL;
+static void         *s_audio_hook_user = NULL;
+
+/* SMK_AUDIO_DUMP=<file.wav>: write the audio output (after the game's hook)
+ * as a WAV, for automated audio checks. */
+static void audio_dump(const int16_t *buf, int frames) {
+    static FILE *f = NULL;
+    static bool tried = false;
+    static uint32_t total = 0;
+    if (!tried) {
+        tried = true;
+        const char *p = getenv("SMK_AUDIO_DUMP");
+        if (p) f = fopen(p, "wb");
+        if (f) { uint8_t hdr[44] = { 0 }; fwrite(hdr, 1, 44, f); }
+    }
+    if (!f) return;
+    fwrite(buf, 4, (size_t)frames, f);
+    total += (uint32_t)frames * 4;
+    /* keep the header valid after every frame (the process may exit any time) */
+    long pos = ftell(f);
+    uint8_t h[44];
+    uint32_t rate = 32040, brate = rate * 4, riff = 36 + total;
+    memcpy(h, "RIFF", 4); memcpy(h + 4, &riff, 4); memcpy(h + 8, "WAVEfmt ", 8);
+    uint32_t fmt = 16; uint16_t pcm = 1, ch = 2, align = 4, bits = 16;
+    memcpy(h + 16, &fmt, 4); memcpy(h + 20, &pcm, 2); memcpy(h + 22, &ch, 2);
+    memcpy(h + 24, &rate, 4); memcpy(h + 28, &brate, 4); memcpy(h + 32, &align, 2); memcpy(h + 34, &bits, 2);
+    memcpy(h + 36, "data", 4); memcpy(h + 40, &total, 4);
+    fseek(f, 0, SEEK_SET); fwrite(h, 1, 44, f); fseek(f, pos, SEEK_SET);
+}
+
+void snesrecomp_set_audio_hook(SnesAudioHook hook, void *user) {
+    s_audio_hook = hook;
+    s_audio_hook_user = user;
+}
 
 void snesrecomp_set_preframe_hook(SnesPreFrameHook hook, void *user) {
     s_preframe = hook;
@@ -701,6 +756,8 @@ void snesrecomp_end_frame(void) {
     int apu_cycles = (int)(s_snes->palTiming ? 534 : 534);
     apu_runCycles(s_snes->apu, apu_cycles * 32);
     snes_setSamples(s_snes, s_audio_buf, SAMPLES_PER_FRAME);
+    if (s_audio_hook) s_audio_hook(s_audio_buf, SAMPLES_PER_FRAME, 32040, s_audio_hook_user);
+    audio_dump(s_audio_buf, SAMPLES_PER_FRAME);
 
     /* Hand the frame to the renderer (drawn at the next present) */
     submit_video();
@@ -813,6 +870,8 @@ void snesrecomp_realframe_end(void) {
     snes_runFrame(s_snes);
     snes_setPixels(s_snes, s_pixel_buf);
     snes_setSamples(s_snes, s_audio_buf, SAMPLES_PER_FRAME);
+    if (s_audio_hook) s_audio_hook(s_audio_buf, SAMPLES_PER_FRAME, 32040, s_audio_hook_user);
+    audio_dump(s_audio_buf, SAMPLES_PER_FRAME);
     submit_video();
     platform_queue_audio(s_audio_buf, SAMPLES_PER_FRAME);
 }

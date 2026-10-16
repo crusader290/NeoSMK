@@ -279,6 +279,7 @@ void neo_register_options(void) {
     neo_gameplay_register_options();
     neo_track_register_options();
     neo_pipes_register_options();
+    neo_music_register_options();
     menu_overlay_add_option("NeoSMK", "3D item boxes", "neo_itemboxes", &s_itemboxes, 1, NULL,
                             "Spinning Mario Kart 64-style boxes over the \"?\" panels\n"
                             "(visual only; a box disappears once its panel is used).");
@@ -303,4 +304,5 @@ void neo_register_options(void) {
 void neo_install(void) {
     scene3d_set_hook(neo_scene, NULL);
     neo_pipes_install();
+    neo_music_install();
 }
