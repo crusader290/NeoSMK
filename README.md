@@ -50,7 +50,7 @@ roadmap; the renderer already composes into a depth-buffered internal target for
 
 ## Downloads
 
-Prebuilt builds are in [`releases/`](releases/README.md): **v0.6.0** for Windows x64, and
+Prebuilt builds are in [`releases/`](releases/README.md): **v0.7.0** for Windows x64, and
 **v0.4.0** for Raspberry Pi 4 (ARM64), Linux x64 and Windows x64.
 
 ## Building
