@@ -6,7 +6,32 @@ installing. **No ROM is included:** put your own US v1.0 dump
 (MD5 `7f25ce5a283d902694c52fb1152fa61a`) next to the executable as
 `Super Mario Kart (USA).sfc`, or pass its path as the first argument.
 
-## v0.4.0 (latest)
+## v0.5.0 (latest, Windows only)
+
+Built from commit `dd1a091` (SDL 3.2.30, Dear ImGui 1.91.9b, MinGW-w64 GCC 13, static runtime).
+Checksum in [`v0.5.0/SHA256SUMS`](v0.5.0/SHA256SUMS). Linux and Raspberry Pi 4 builds for this
+version weren't made; use v0.4.0 there or build from source.
+
+| File | Platform |
+|---|---|
+| [`neosmk-windows-x64.zip`](v0.5.0/neosmk-windows-x64.zip) | Windows 10/11 x64 |
+
+**New since v0.4.0** (see the **NeoSMK** menu; all visual only):
+
+- **3D pipes** (on by default): Mario Circuit's warp pipes are green 3D pipes; the flat pipe
+  sprites are hidden. Used "?" panels are no longer left on the track.
+- **Widescreen UI at the edges** (on by default): in widescreen, SMK's own HUD moves out of the
+  4:3 middle. The timer and item box, lives / coins and the position number go right; the
+  race-position icons go left.
+- In full-screen races, karts you pass stay visible below SMK's original view edge.
+- Walls and pipes between the camera and your kart are cut away.
+- **Fixes:** the countdown traffic light and Lakitu are no longer cut or drawn over by 3D walls.
+  3D walls no longer cover the HUD. The "ranked out" screen no longer shows a black box or
+  black lines in full-screen, and its dimmed look matches the original in the native layout.
+
+**Not tested:** this package was built but not run (no Wine or hardware smoke test).
+
+## v0.4.0
 
 Built from commit `0324a97` (SDL 3.2.30, Dear ImGui 1.91.9b). Checksums are in
 [`v0.4.0/SHA256SUMS`](v0.4.0/SHA256SUMS). Same platforms and toolchains as v0.1.0 below.

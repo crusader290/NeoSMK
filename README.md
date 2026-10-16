@@ -50,8 +50,8 @@ roadmap; the renderer already composes into a depth-buffered internal target for
 
 ## Downloads
 
-Prebuilt **v0.4.0** builds for Raspberry Pi 4 (ARM64), Linux x64 and Windows x64 are in
-[`releases/`](releases/README.md).
+Prebuilt builds are in [`releases/`](releases/README.md): **v0.5.0** for Windows x64, and
+**v0.4.0** for Raspberry Pi 4 (ARM64), Linux x64 and Windows x64.
 
 ## Building
 
