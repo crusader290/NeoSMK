@@ -6,7 +6,38 @@ installing. **No ROM is included:** put your own US v1.0 dump
 (MD5 `7f25ce5a283d902694c52fb1152fa61a`) next to the executable as
 `Super Mario Kart (USA).sfc`, or pass its path as the first argument.
 
-## v0.3.0 (latest)
+## v0.4.0 (latest)
+
+Built from commit `0324a97` (SDL 3.2.30, Dear ImGui 1.91.9b). Checksums are in
+[`v0.4.0/SHA256SUMS`](v0.4.0/SHA256SUMS). Same platforms and toolchains as v0.1.0 below.
+
+| File | Platform |
+|---|---|
+| [`neosmk-linux-arm64-pi4.tar.gz`](v0.4.0/neosmk-linux-arm64-pi4.tar.gz) | Raspberry Pi 4 (and newer), 64-bit Raspberry Pi OS Bookworm or later |
+| [`neosmk-linux-x64.tar.gz`](v0.4.0/neosmk-linux-x64.tar.gz) | x86-64 Linux with glibc ≥ 2.35 (Debian 12, Ubuntu 22.04+, Fedora 36+) |
+| [`neosmk-windows-x64.zip`](v0.4.0/neosmk-windows-x64.zip) | Windows 10/11 x64 |
+
+**New since v0.3.0** (see the **NeoSMK** menu; all visual only):
+
+- **3D coins** (on by default). Spinning gold coins with shadows replace the flat coin tiles;
+  a coin disappears once collected.
+- **3D walls** (on by default). Barrier blocks (Mario Circuit's coloured studded blocks) are
+  raised into 3D walls; a wall between the camera and your kart is cut away so it never blocks
+  the view. Collisions are unchanged.
+- The flat "?" panels and coin tiles are no longer drawn on the track when their 3D versions
+  are on.
+- Karts, shells and other track sprites are depth-sorted against the 3D objects, so they hide
+  and are hidden by them correctly.
+- **Fixes:** the position number no longer zooms over the circuit map on a place change or at
+  the finish. Leftover pieces of the number under the lives / coins icons are gone. With the MK8
+  HUD off, the top of the finish screen no longer shows garbage.
+
+**Tested:** Linux x64 and the Pi 4 build (under qemu-aarch64) ran the ROM title → menus → race and
+produced WRAM/VRAM/CGRAM snapshots byte-identical to the reference run. The Linux package's
+screenshots show the 3D coins, walls and item boxes. Windows was checked under Wine
+(`--version`). **Not yet run on real Raspberry Pi or native Windows hardware.**
+
+## v0.3.0
 
 Built from commit `b454f86` (SDL 3.2.30, Dear ImGui 1.91.9b). Checksums are in
 [`v0.3.0/SHA256SUMS`](v0.3.0/SHA256SUMS). Same platforms and toolchains as v0.1.0 below.
