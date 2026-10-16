@@ -69,9 +69,10 @@ layout.
 
 **Gameplay** (options in the NeoSMK menu, shared with netplay peers):
 
-- **MK64 mini-turbo.** Power-slide (hop with R while steering), then flick the D-pad toward the
-  *outside* of the turn: one flick gives yellow sparks, three give orange. Release R on orange
-  for a boost.
+- **MK64 mini-turbo.** Power-slide (hop with R while steering) and hold it: the sparks turn
+  yellow, then orange. Holding the D-pad into the turn charges fastest (orange in about a
+  second); MK64-style taps (outward, then back into the turn) charge it quicker still. Release
+  R on orange for a boost.
 - **MK64 items.** Item boxes can also give a triple mushroom, a golden mushroom (boost as often
   as you like for 7.5 s), triple green or red shells, or a banana bunch. Dots under the item
   box show the uses left. Player 1 only for now.
