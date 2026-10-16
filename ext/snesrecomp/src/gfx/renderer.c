@@ -617,6 +617,7 @@ void renderer_draw_sprites(void) {
             if (s_spr_band[i].line1 > l1) l1 = s_spr_band[i].line1;
         }
         l1 += 9;                  /* native layout: karts overhang the band */
+        if (s_spr_offset > 0) l1 = s_spr_lines;   /* full-screen: front sprites anywhere */
         (void)l0;                 /* screen-space sprites above the band count too */
         int top = (int)((float)(s_spr_offset) / s_spr_lines * R.int_h);
         int bot = (int)((float)(l1 + s_spr_offset) / s_spr_lines * R.int_h + 1.0f);

@@ -344,6 +344,9 @@ static void apply_track_layers(void) {
     ppu_setObjSep(s_snes->ppu, s_spr_on && l1 > 0, 1, max, s_spr_exclude);
     ppu_setObjSepFront(s_snes->ppu, s_spr_front);
     ppu_setObjSepFrontPalettes(s_snes->ppu, s_spr_front_pal);
+    /* full-screen: the picture below the race band isn't shown, so screen-space
+     * sprites there (SMK's LAP TIME board) must come through the sprite layer */
+    ppu_setObjSepFrontMaxLine(s_snes->ppu, s_view.layout == M7_LAYOUT_FULLSCREEN ? 239 : 0);
     /* UI anchoring: 1-player frames only (2-player HUDs sit per half) */
     int nchase = 0;
     for (int i = 0; i < s_view.nbands; i++) nchase += s_view.band[i].chase ? 1 : 0;

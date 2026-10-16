@@ -107,6 +107,7 @@ Ppu* ppu_init(Snes* snes) {
   memset(ppu->objSepBuffer, 0, sizeof(ppu->objSepBuffer));
   memset(ppu->objSepFront, 0, sizeof(ppu->objSepFront));
   ppu->objSepFrontPal = 0;
+  ppu->objSepFrontMaxLine = 0;
   ppu->anchorEnabled = false;
   ppu->anchorLine = false;
   ppu->anchorMinLine = ppu->anchorMaxLine = 0;
@@ -522,6 +523,10 @@ void ppu_setObjSepFrontPalettes(Ppu* ppu, uint8_t mask) {
   ppu->objSepFrontPal = mask;
 }
 
+void ppu_setObjSepFrontMaxLine(Ppu* ppu, int maxLine) {
+  ppu->objSepFrontMaxLine = maxLine;
+}
+
 void ppu_setObjSepFront(Ppu* ppu, const uint8_t front[16]) {
   if(front) memcpy(ppu->objSepFront, front, 16);
   else memset(ppu->objSepFront, 0, 16);
@@ -586,6 +591,13 @@ static bool ppu_objIsSep(Ppu* ppu, int x) {
   uint8_t i = ppu->objWideIndex[x + PPU_WIDE_MAX];
   if(ppu->hudEnabled && ((ppu->hudObjMask[i >> 3] >> (i & 7)) & 1)) return false;
   return !((ppu->objSepExclude[i >> 3] >> (i & 7)) & 1);
+}
+
+// screen-space sprite pixel (drawn in front of all 3D)
+static bool ppu_objIsFront(Ppu* ppu, int x) {
+  uint8_t n = ppu->objWideIndex[x + PPU_WIDE_MAX];
+  int pal = (ppu->objWidePixel[x + PPU_WIDE_MAX] >> 4) & 7;
+  return ((ppu->objSepFront[n >> 3] >> (n & 7)) & 1) || ((ppu->objSepFrontPal >> pal) & 1);
 }
 
 // bottom screen line (1-based) of OAM entry n, wrapped into 1..255
@@ -671,15 +683,14 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
     PpuPixInfo info;
     ppu->hudSkip = 0;
     ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
-    if(ppu->objSepEnabled && y >= ppu->objSepMinLine && y <= ppu->objSepMaxLine &&
-       (info.mainLayer == 4 || info.mainLayer == 6) && ppu_objIsSep(ppu, x)) {
+    if(ppu->objSepEnabled && (info.mainLayer == 4 || info.mainLayer == 6) && ppu_objIsSep(ppu, x) &&
+       ((y >= ppu->objSepMinLine && y <= ppu->objSepMaxLine) ||
+        (y <= ppu->objSepFrontMaxLine && ppu_objIsFront(ppu, x)))) {
       // a track sprite: to the sprite layer, the picture shows what is behind it
       sepR = info.baseR; sepG = info.baseG; sepB = info.baseB;
       {
         uint8_t n = ppu->objWideIndex[x + PPU_WIDE_MAX];
-        int pal = (ppu->objWidePixel[x + PPU_WIDE_MAX] >> 4) & 7;
-        bool front = ((ppu->objSepFront[n >> 3] >> (n & 7)) & 1) || ((ppu->objSepFrontPal >> pal) & 1);
-        sepBottom = front ? 255 : ppu_objBottomLine(ppu, n);
+        sepBottom = ppu_objIsFront(ppu, x) ? 255 : ppu_objBottomLine(ppu, n);
       }
       ppu->hudSkip = 8;
       ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);

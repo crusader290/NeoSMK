@@ -11,6 +11,7 @@
 
 #include <snesrecomp/bus.h>
 #include <snesrecomp/snesrecomp.h>
+#include <math.h>
 #include <string.h>
 
 static Scene3DTex *s_mask_tex = NULL;
@@ -19,9 +20,12 @@ static uint8_t     s_uploaded[128 * 128];
 static bool        s_have_upload = false;
 static int         s_bx0, s_by0, s_bx1, s_by1;   /* track bounds, tiles */
 
+/* Drivable surface: SMK's behaviour byte groups surfaces by its high nibble.
+ * $4x is the road of every track (plain $40, Donut Plains' dirt road $46,
+ * Bowser Castle's stone $44, Ghost Valley's plank edges $42); $1x are road
+ * features (start line $1E, item panel $14, coin $1A, ...). */
 static bool is_track(uint8_t behaviour) {
-    return behaviour == SMK_TILE_ROAD || behaviour == SMK_TILE_ITEM_PANEL ||
-           behaviour == SMK_TILE_COIN;
+    return (behaviour & 0xF0) == 0x40 || (behaviour & 0xF0) == 0x10;
 }
 
 /* Rebuild the mask from VRAM; returns false if no track is visible. */
@@ -71,6 +75,28 @@ void neo_minimap_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w,
     float uv1[2] = { s_bx1 / 128.0f, s_by1 / 128.0f };
     scene3d_ui_mask(s_mask_tex, x, y, wpx, h, uv0, uv1, fill, edge);
 
+    /* racers taking part: those that have moved this race, or (before the
+     * start) the ones on the grid near player 1; Time Trial leaves the CPU
+     * records parked somewhere on the map */
+    static float last_x[SMK_RACER_COUNT], last_y[SMK_RACER_COUNT];
+    static bool moved[SMK_RACER_COUNT], any_moved = false;
+    static uint32_t epoch = 0xFFFFFFFFu;
+    static uint8_t tile_sig = 0;
+    uint8_t sig = (uint8_t)(s_bx0 * 7 + s_by0 * 13 + s_bx1 * 3 + s_by1);   /* new track */
+    if (epoch != snesrecomp_state_epoch() || sig != tile_sig) {
+        epoch = snesrecomp_state_epoch();
+        tile_sig = sig;
+        memset(moved, 0, sizeof(moved));
+        any_moved = false;
+        for (int i = 0; i < SMK_RACER_COUNT; i++) { last_x[i] = w->racer[i].x; last_y[i] = w->racer[i].y; }
+    }
+    for (int i = 0; i < SMK_RACER_COUNT; i++) {
+        if (fabsf(w->racer[i].x - last_x[i]) + fabsf(w->racer[i].y - last_y[i]) > 4.0f) {
+            moved[i] = true;
+            any_moved = true;
+        }
+    }
+
     /* racers: map pixels -> minimap; CPUs first, player 1 last (on top) */
     float sx = wpx / (bw * 8.0f), sy = h / (bh * 8.0f);
     for (int pass = 0; pass < 2; pass++) {
@@ -78,6 +104,11 @@ void neo_minimap_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w,
             bool player = (i == 0);
             if ((pass == 1) != player) continue;
             const NeoRacer *r = &w->racer[i];
+            if (!player) {
+                const NeoRacer *p0 = &w->racer[0];
+                bool on_grid = !any_moved && fabsf(r->x - p0->x) + fabsf(r->y - p0->y) < 220.0f;
+                if (!moved[i] && !on_grid) continue;
+            }
             float cx = x + (r->x - s_bx0 * 8.0f) * sx;
             float cy = y + (r->y - s_by0 * 8.0f) * sy;
             const float *c = neo_char_color[r->character];

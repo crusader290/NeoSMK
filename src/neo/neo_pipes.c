@@ -107,6 +107,10 @@ static void read_pipes(void) {
  * palette most often found on sprites standing on the pipes' positions. */
 static int s_pipe_pal = -1;
 static int s_pal_votes[8];
+/* Tile numbers the pipe sprites use (learnt from sprites on the pipes'
+ * positions): hidden wherever they are drawn, so a fast camera turn (a crash
+ * spin) can't let a frame of the flat pipe through. */
+static uint8_t s_pipe_tile[512];
 
 static void preframe(void *user) {
     (void)user;
@@ -116,6 +120,7 @@ static void preframe(void *user) {
         s_col_sampled = false;           /* the next track samples again */
         s_pipe_pal = -1;
         memset(s_pal_votes, 0, sizeof(s_pal_votes));
+        memset(s_pipe_tile, 0, sizeof(s_pipe_tile));
         snesrecomp_set_obj_hide(NULL);
         return;
     }
@@ -150,8 +155,17 @@ static void preframe(void *user) {
                     continue;
                 }
                 hide[n >> 3] |= (uint8_t)(1 << (n & 7));
+                s_pipe_tile[e.tile & 511] = 1;
                 if (e.size > best_size) { best = e; best_size = e.size; }
             }
+        }
+    }
+    if (s_pipe_pal >= 0 && s_npipes > 0) {
+        for (int n = 28; n < 120; n++) {
+            SnesOamEntry e;
+            snesrecomp_read_oam(n, &e);
+            if (e.palette == s_pipe_pal && s_pipe_tile[e.tile & 511])
+                hide[n >> 3] |= (uint8_t)(1 << (n & 7));
         }
     }
     snesrecomp_set_obj_hide(hide);

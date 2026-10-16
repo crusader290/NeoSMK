@@ -204,6 +204,7 @@ struct Ppu {
   uint8_t objSepBuffer[(256 + 2 * PPU_WIDE_MAX) * 4 * 239 * 2];
   uint8_t objSepFront[16];     // entries drawn in front of all 3D (bottom line 255)
   uint8_t objSepFrontPal;      // ... and sprites using these palettes (bit per palette)
+  int objSepFrontMaxLine;      // front sprites are separated down to here (past objSepMaxLine)
   // Widescreen UI anchoring (NeoSMK, presentation only): on widened frames,
   // lines anchorMinLine..anchorMaxLine, OAM entry n is drawn objAnchor[n] *
   // wideExt columns to the side (-1 left edge, +1 right edge, 0 stays), BG n
@@ -263,6 +264,7 @@ void ppu_setObjHide(Ppu* ppu, const uint8_t hide[16]);
 // separated sprites of these OAM entries are marked "in front" (bottom line 255)
 void ppu_setObjSepFront(Ppu* ppu, const uint8_t front[16]);
 void ppu_setObjSepFrontPalettes(Ppu* ppu, uint8_t mask);
+void ppu_setObjSepFrontMaxLine(Ppu* ppu, int maxLine);
 // widescreen UI anchoring (see Ppu.anchor*)
 void ppu_setAnchors(Ppu* ppu, bool enabled, int minLine, int maxLine, const int8_t objAnchor[128],
                     const int8_t bgAnchor[4], int bgMinLine, int colorWindowAnchor);
