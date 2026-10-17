@@ -24,7 +24,6 @@ static int s_markers = 0;
 static int s_itemboxes = 1;
 static int s_minimap = 1;
 static int s_mk8_hud = 1;
-static int s_ui_anchor = 1;
 
 
 static Scene3DMesh *s_pyramid = NULL;
@@ -185,7 +184,18 @@ static void draw_hud(const Scene3DFrame *f, const M7View *v, const NeoWorld *w) 
             float target = steady_h > 0.0f ? steady_h : th * 0.06f;
             float scale = 2.0f * target / ht1;
             scene3d_ui_hud_size(SNES_HUD_MATH, scale, &wd, &ht);
-            scene3d_ui_hud(SNES_HUD_MATH, tw - m - wd, th - m - ht, scale);
+            /* SMK adds the numeral's colour to what is behind it, which at
+             * this size is lost on white lines and bright walls. Draw it solid
+             * instead, its colour brightened to full, with a dark outline. */
+            const uint8_t *mc = snesrecomp_hud()->math_rgb;
+            int peak = mc[0] > mc[1] ? mc[0] : mc[1];
+            if (mc[2] > peak) peak = mc[2];
+            float k = peak > 16 ? 255.0f / peak : 1.0f;
+            const float outline[4] = { 0.0f, 0.0f, 0.0f, 0.6f };
+            const float fill[4] = { k, k, k, 1.0f };
+            float nx = tw - m - wd, ny = th - m - ht;
+            scene3d_ui_hud_tinted(SNES_HUD_MATH, nx, ny, scale, th * 0.004f, outline);
+            scene3d_ui_hud_tinted(SNES_HUD_MATH, nx, ny, scale, 0.0f, fill);
         }
         if (steady_h > 0.0f) bottom = th - m - 2.0f * steady_h - m * 0.5f;
     }
@@ -207,8 +217,16 @@ static void player_front_boxes(const M7View *v, const NeoWorld *w) {
             float depth = (r->x - b->cam[0]) * b->fwd[0] + (r->y - b->cam[1]) * b->fwd[1];
             float px = b->focal / (depth > 1.0f ? depth : 1.0f);
             float base = line + 0.5f - (v->layout == M7_LAYOUT_FULLSCREEN ? v->line_offset : 0);
-            scene3d_sprites_front_box(p, col - 8.0f * px, base - 14.0f * px, col + 8.0f * px,
-                                      base + 3.0f, base);
+            float box[4], bottom;
+            if (neo_karts_sprite_box(col, base, px, box, &bottom)) {
+                /* the kart's own sprites, plus a margin for its dust and sparks */
+                float m = 2.0f + 2.0f * px;
+                scene3d_sprites_front_box(p, box[0] - m, box[1] - m, box[2] + m, box[3] + 3.0f,
+                                          bottom > base ? bottom : base);
+            } else {
+                scene3d_sprites_front_box(p, col - 8.0f * px, base - 14.0f * px, col + 8.0f * px,
+                                          base + 3.0f, base);
+            }
         }
         p++;
     }
@@ -256,8 +274,7 @@ static void configure_anchors(void) {
     for (int i = 0; i < 8; i++) obj[i] = -1;
     for (int i = 16; i < 24; i++) obj[i] = 1;
     /* BG2 lines 1-3 are a full-width black border; the timer starts below */
-    if (s_ui_anchor) snesrecomp_set_ui_anchors(obj, bg, 4, 1);
-    else snesrecomp_set_ui_anchors(NULL, NULL, 0, 0);
+    snesrecomp_set_ui_anchors(obj, bg, 4, 1);
 }
 
 void neo_overlay_sync(bool in_race) {
@@ -267,7 +284,7 @@ void neo_overlay_sync(bool in_race) {
     snesrecomp_set_sprite_layer(in_race && any3d, NULL, k_front_oam);
     snesrecomp_set_sprite_front_palettes(1 << 4);   /* palette 4: SMK's text (HUD, banners, pause menu) */
     static int anchors = -1;
-    int want = in_race && s_ui_anchor;
+    int want = in_race;
     if (want != anchors) {
         anchors = want;
         if (want) configure_anchors();
@@ -289,10 +306,6 @@ void neo_register_options(void) {
     menu_overlay_add_option("NeoSMK", "MK8-style HUD (full-screen)", "neo_mk8_hud", &s_mk8_hud, 1, NULL,
                             "Move the timer, lives / coins and position number to the\n"
                             "screen corners in full-screen single-player races.");
-    menu_overlay_add_option("NeoSMK", "Widescreen UI at the edges", "neo_ui_anchor", &s_ui_anchor, 1, NULL,
-                            "In widescreen, move SMK's own HUD (timer and item box,\n"
-                            "lives / coins, position number and icons) out to the screen\n"
-                            "edges instead of the 4:3 middle.");
     menu_overlay_add_option("Debug", "3D camera markers", "neo_debug_markers", &s_markers,
                             1, NULL,
                             "Float a 3D marker over every racer using the camera\n"

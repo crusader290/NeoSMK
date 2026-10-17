@@ -129,7 +129,7 @@ static const char *kUiFS =
     "        int a = int(t.a * 255.0 + 0.5);\n"
     "        bool under = u_class == 3 && (a & 64) != 0;\n"   /* math under a HUD sprite */
     "        if ((a & 15) != u_class && !under) discard;\n"
-    "        o_color = vec4((a & 15) == u_class ? t.rgb : u_edge.rgb, u_fill.a);\n"
+    "        o_color = vec4(((a & 15) == u_class ? t.rgb : u_edge.rgb) * u_fill.rgb, u_fill.a);\n"
     "        return;\n"
     "    }\n"
     "    if (u_mode == 3) {\n"
@@ -620,6 +620,29 @@ void scene3d_ui_hud(int cls, float x, float y, float scale) {
     ui_quad(x, y, w, h);
     glBlendEquation(GL_FUNC_ADD);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+void scene3d_ui_hud_tinted(int cls, float x, float y, float scale, float px, const float rgba[4]) {
+    const SnesHudFrame *hf = snesrecomp_hud();
+    float w, h;
+    if (px < 0.0f || !scene3d_ui_hud_size(cls, scale, &w, &h)) return;
+    int tc = 0, tl = 0;
+    GLuint tex = renderer_hud_texture(&tc, &tl);
+    if (!tex) return;
+    const float TW = 256.0f + 2.0f * 64.0f, TH = 240.0f;   /* HUD texture size */
+    float u0 = hf->box[cls].x0 / TW, v0 = hf->box[cls].y0 / TH;
+    float u1 = (hf->box[cls].x1 + 1) / TW, v1 = (hf->box[cls].y1 + 1) / TH;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(U.u_mode, 2);
+    glUniform1i(U.u_class, cls);
+    /* the HUD colours multiplied by rgba (normal blending) */
+    glUniform4f(U.u_fill, rgba[0], rgba[1], rgba[2], rgba[3]);
+    glUniform4f(U.u_edge, 1.0f, 1.0f, 1.0f, 1.0f);
+    glUniform4f(U.u_uv, (u0 + u1) * 0.5f, (v0 + v1) * 0.5f, u1, v1);
+    static const float dirs[8][2] = { {1,0},{-1,0},{0,1},{0,-1},{0.7f,0.7f},{-0.7f,0.7f},{0.7f,-0.7f},{-0.7f,-0.7f} };
+    if (px == 0.0f) ui_quad(x, y, w, h);
+    else for (int i = 0; i < 8; i++) ui_quad(x + dirs[i][0] * px, y + dirs[i][1] * px, w, h);
 }
 
 void scene3d_ui_image(const Scene3DTex *t, float x, float y, float w, float h,

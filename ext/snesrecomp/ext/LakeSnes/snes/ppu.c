@@ -105,6 +105,7 @@ Ppu* ppu_init(Snes* snes) {
   ppu->objSepMaxLine = 0;
   memset(ppu->objSepExclude, 0, sizeof(ppu->objSepExclude));
   memset(ppu->objSepBuffer, 0, sizeof(ppu->objSepBuffer));
+  memset(ppu->objSepIndex, 0, sizeof(ppu->objSepIndex));
   memset(ppu->objSepFront, 0, sizeof(ppu->objSepFront));
   ppu->objSepFrontPal = 0;
   ppu->objSepFrontMaxLine = 0;
@@ -552,6 +553,15 @@ int ppu_putObjSep(Ppu* ppu, uint8_t* out) {
   return rows;
 }
 
+int ppu_putObjSepIndex(Ppu* ppu, uint8_t* out) {
+  int stride = 256 + 2 * ppu->wideExt;
+  int rows = ppu->frameOverscan ? 239 : 224;
+  for(int y = 0; y < rows; y++) {
+    memcpy(out + y * stride, &ppu->objSepIndex[(y + (ppu->evenFrame ? 0 : 239)) * stride], stride);
+  }
+  return rows;
+}
+
 const PpuM7Line* ppu_getM7Lines(Ppu* ppu) {
   return ppu->m7lines;
 }
@@ -678,7 +688,7 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
   int g = 0, g2 = 0;
   int b = 0, b2 = 0;
   int hudR = 0, hudG = 0, hudB = 0, hudClass = 0;
-  int sepR = 0, sepG = 0, sepB = 0, sepBottom = 0;
+  int sepR = 0, sepG = 0, sepB = 0, sepBottom = 0, sepIndex = 0;
   if(!ppu->forcedBlank) {
     PpuPixInfo info;
     ppu->hudSkip = 0;
@@ -691,6 +701,7 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
       {
         uint8_t n = ppu->objWideIndex[x + PPU_WIDE_MAX];
         sepBottom = ppu_objIsFront(ppu, x) ? 255 : ppu_objBottomLine(ppu, n);
+        sepIndex = n + 1;
       }
       ppu->hudSkip = 8;
       ppu_composePixel(ppu, x, y, &r, &g, &b, &r2, &g2, &b2, &info);
@@ -755,6 +766,7 @@ static void ppu_handlePixel(Ppu* ppu, int x, int y) {
     o[1] = ((sepG << 3) | (sepG >> 2)) * ppu->brightness / 15;
     o[2] = ((sepB << 3) | (sepB >> 2)) * ppu->brightness / 15;
     o[3] = (uint8_t)sepBottom;
+    ppu->objSepIndex[row * (256 + 2 * ppu->wideExt) + x + ppu->wideExt] = (uint8_t)sepIndex;
   }
   if(ppu->hudEnabled) {
     int stride = (256 + 2 * ppu->wideExt) * 4;

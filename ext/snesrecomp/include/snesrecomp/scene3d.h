@@ -97,6 +97,10 @@ bool scene3d_ui_hud_size(int cls, float scale, float *w, float *h);
 /* Draw that box with its top-left at (x, y). Colour-math pixels blend the
  * way the SNES applied them (add / subtract / half). */
 void scene3d_ui_hud(int cls, float x, float y, float scale);
+/* A HUD class drawn as in scene3d_ui_hud but with normal blending, its
+ * colours multiplied by rgba (components may exceed 1); px > 0 draws an
+ * outline that many pixels wide instead of the shape itself. */
+void scene3d_ui_hud_tinted(int cls, float x, float y, float scale, float px, const float rgba[4]);
 /* RGBA texture (scene3d_tex_rgba) drawn at (x, y, w, h); uv0..uv1 picks the
  * sub-rect, alpha blends (0 = transparent). `tint` multiplies (NULL = white). */
 void scene3d_ui_image(const Scene3DTex *t, float x, float y, float w, float h,

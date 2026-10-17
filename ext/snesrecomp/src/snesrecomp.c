@@ -265,6 +265,7 @@ static int8_t          s_anchor_bg[4];
 static int             s_anchor_cw = 0;
 static int             s_anchor_bg_min = 1;
 static uint8_t         s_spr_buf[(256 + 2 * PPU_WIDE_MAX) * 4 * 239];
+static uint8_t         s_spr_idx[(256 + 2 * PPU_WIDE_MAX) * 239];
 
 void snesrecomp_set_m7_override(const uint16_t *cells) { s_m7_override = cells; }
 
@@ -368,6 +369,10 @@ const uint8_t *snesrecomp_sprite_layer(int *cols, int *lines) {
     return s_spr_cols > 0 ? s_spr_buf : NULL;
 }
 
+const uint8_t *snesrecomp_sprite_layer_oam(void) {
+    return s_spr_cols > 0 ? s_spr_idx : NULL;
+}
+
 static void collect_sprites(int cols) {
     s_spr_cols = s_spr_lines = 0;
     if (!s_snes->ppu->objSepEnabled) {
@@ -375,6 +380,7 @@ static void collect_sprites(int cols) {
         return;
     }
     int lines = ppu_putObjSep(s_snes->ppu, s_spr_buf);
+    ppu_putObjSepIndex(s_snes->ppu, s_spr_idx);
     s_spr_cols = cols;
     s_spr_lines = lines;
     RendererSpriteBand bands[4];

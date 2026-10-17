@@ -94,6 +94,9 @@ void neo_pipes_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w);
 /* Full-screen layout: other karts below SMK's race view, as billboards of
  * their last captured sprite. */
 void neo_karts_draw(const Scene3DFrame *f, const M7View *v, const NeoWorld *w);
+/* Picture box (x0, y0, x1, y1) and bottom line of the kart sprite standing at
+ * (col, line), from its OAM block in the sprite layer; false if not found. */
+bool neo_karts_sprite_box(float col, float line, float px_per_unit, float box[4], float *bottom);
 
 /* MK64 item variants (gameplay, player 1): once per logic tick. */
 void neo_items_tick(bool enabled, int frame);

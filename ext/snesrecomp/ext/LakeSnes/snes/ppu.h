@@ -202,6 +202,7 @@ struct Ppu {
   int objSepMaxLine;
   uint8_t objSepExclude[16];   // bit per OAM entry
   uint8_t objSepBuffer[(256 + 2 * PPU_WIDE_MAX) * 4 * 239 * 2];
+  uint8_t objSepIndex[(256 + 2 * PPU_WIDE_MAX) * 239 * 2];   // OAM entry + 1 per separated pixel
   uint8_t objSepFront[16];     // entries drawn in front of all 3D (bottom line 255)
   uint8_t objSepFrontPal;      // ... and sprites using these palettes (bit per palette)
   int objSepFrontMaxLine;      // front sprites are separated down to here (past objSepMaxLine)
@@ -270,6 +271,7 @@ void ppu_setAnchors(Ppu* ppu, bool enabled, int minLine, int maxLine, const int8
                     const int8_t bgAnchor[4], int bgMinLine, int colorWindowAnchor);
 // copy the last frame's sprite layer like ppu_putHud (4 bytes per pixel)
 int ppu_putObjSep(Ppu* ppu, uint8_t* out);
+int ppu_putObjSepIndex(Ppu* ppu, uint8_t* out);   // OAM entry + 1 per sprite-layer pixel, 0 = none
 // mode-7 line capture of the last frame (lines 1..239 at index line - 1)
 const PpuM7Line* ppu_getM7Lines(Ppu* ppu);
 

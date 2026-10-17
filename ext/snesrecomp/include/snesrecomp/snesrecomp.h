@@ -156,6 +156,9 @@ void snesrecomp_set_sprite_front_palettes(uint8_t mask);
  * lines RGBA: rgb + the sprite's bottom scanline, 0 = no sprite, 255 = in
  * front), or NULL when the frame had none. */
 const uint8_t *snesrecomp_sprite_layer(int *cols, int *lines);
+/* The OAM entry behind each sprite-layer pixel, plus 1 (0 = no sprite), same
+ * cols x lines as snesrecomp_sprite_layer. */
+const uint8_t *snesrecomp_sprite_layer_oam(void);
 
 /* Called every real frame after the local pads were read and before the
  * netplay exchange: a scripted or replayed input source sets the local pads
